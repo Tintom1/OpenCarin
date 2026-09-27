@@ -2,7 +2,7 @@
 
 > **Status: ✅ RESOLVED / VERIFIED.** The coordinate system is fully solved
 > (0 free parameters, 2.0 km rms across 38 anchors, independently cross-checked).
-> POI (`0x06`) and feature (`0x16`) record layouts are byte-verified.
+> POI (`0x06`, `0x10`) and feature (`0x16`) record layouts are byte-verified.
 >
 > Source: `../CARINDB_BLUEPRINT_EN.md` §7–§8. Related: block layout →
 > [`01-architecture.md`](01-architecture.md).
@@ -100,12 +100,12 @@ def to_carin(lon, lat):
 
 ## 8. Georeferenced Record Formats
 
-### 8.1 Type `0x06` — POI Record, **28 bytes** (not 24)
+### 8.1 Type `0x06` — POI Record, **`T[0x32]` bytes** (28 on DB-REL 34, 20 on DB-REL 22)
 
 ```
  off  size  field
- 0x00   4   BLOCK_ID of the 0x10 block (street/name parcel) containing the POI
- 0x04   2   UNKNOWN (multiple of 8)
+ 0x00   4   BLOCK_ID of the 0x10 block (POI parcel, §8.1.1) holding this POI's details
+ 0x04   2   byte offset, within that 0x10 block, of this POI's S0 index record (§8.1.1)
  0x06   2   LOCAL_X    position in tile, step 64        <- sorted ascending
  0x08   2   LOCAL_Y    position in tile, step 64
  0x0A   2   CATEGORY   (0x0016, 0x0017, 0x001F, 0x0023, 0x0030, …)
@@ -132,6 +132,81 @@ Verified across 2,395 blocks: for each tile size, `max(LOCAL_X) = (X_max−X_min
 POI resolution: 64 units = 1.15e−5° ≈ **1.2 m**. Name blob (Latin-1, `\0`-terminated)
 follows the records: **173 distinct names across the whole DB**, all brands/chains
 (banks, fuels, hotels) — no toponyms, no airports. **2,048,403 POIs** extracted.
+
+**Record size is `T[0x32]`, not a constant.** On CD-ID 2952 (DB-REL 22) the record is
+**20 bytes**: the same fields up to `CATEGORY`, then `u32 0`, `u32 BRAND_REF`, with
+the trailing 8 bytes of the 28-byte form absent. Of the five `RECORD_SIZE_TABLE`
+candidates for 28 bytes listed in `01-architecture.md` (`0x04`, `0x18`, `0x32`,
+`0x43`, `0x4e`), `T[0x32]` is the only one that equals 20 on that disc (28 on
+CD-ID 21594, DB-REL 34).
+
+Every `0x06` record points at exactly one POI in a `0x10` block, and its tile
+position equals that POI's stored absolute coordinate (§8.1.1) to the unit:
+
+| disc | `0x06` blocks | records | tile position == 0x10 coordinate |
+|---|---|---|---|
+| CD-ID 2952 (DB-REL 22) | 730 | 64,433 | 64,433 |
+| CD-ID 21594 (DB-REL 34) | 1,652 | 466,310 | 466,310 |
+
+The `0x06` blocks are therefore a **spatial index over the `0x10` POI parcels**:
+finding the POIs near a position is a bbox lookup plus one read per tile, with no
+geometry involved.
+
+#### 8.1.1 Type `0x10` — POI parcel (name, address, phone, absolute position)
+
+All `0x10` blocks on both CD discs are CF=0. The section descriptor at `0x08` has the
+shape `[(o0, n0), (o1, n1), (0,0), (0,0), (o4, n4), (0,0)]`; `o0` is 40 on DB-REL 22
+and 48 on DB-REL 34, so read it from the descriptor. **Every string pointer below is a
+plain byte offset from the start of the block** (header included) to a Latin-1,
+`\0`-terminated string; `0` means absent.
+
+S0 — `n0` index records, 8 bytes:
+
+```
+ off  size  field
+ 0x00   2   NAME_PTR
+ 0x02   2   TYPE          (2 in 94% of records on DB-REL 22, >99% on DB-REL 34)
+ 0x04   2   LOCALITY_PTR  or 0
+ 0x06   2   DETAIL_PTR    byte offset of an S1 record
+```
+
+`n0 >= n1`: several index records can share one detail record (alternate names).
+
+S1 — `n1` detail records, 40 bytes (`T[0x2f]`; the other candidate, `T[0x51]`, is 28
+on DB-REL 22):
+
+```
+ off  size  field
+ 0x00   4   X             absolute, same frame as §7
+ 0x04   4   Y
+ 0x0E   2   STREET_PTR
+ 0x1A   2   HOUSE_NO_PTR
+ 0x20   2   PHONE_PTR
+ 0x22   2   POSTCODE_PTR  (outward code + first inward digit, e.g. "sw7 2"; 0 on DB-REL 22)
+ other      UNKNOWN
+```
+
+Measured over every `0x10` block:
+
+| | CD-ID 2952 (DB-REL 22) | CD-ID 21594 (DB-REL 34) |
+|---|---|---|
+| blocks / S0 records | 620 / 119,006 | 4,787 / 844,749 |
+| `DETAIL_PTR` lands on an S1 record boundary | 119,006 | 844,749 |
+| `NAME_PTR` resolves to a string | 117,920 | 840,706 |
+| (X, Y) inside Europe | 119,006 | 844,749 |
+| `STREET_PTR` non-zero / resolves | 92,144 / 92,142 | 781,916 / 781,898 |
+| `PHONE_PTR` non-zero / resolves | 33,992 / 33,992 | 688,901 / 688,901 |
+| `POSTCODE_PTR` non-zero / resolves | 0 | 764,848 / 764,848 |
+
+Example (CD-ID 21594, block at 2048-byte sector 54542, S0 record at `0x480`):
+`royal albert hall` → street `kensington road`, phone `+442075898212`, postcode
+`sw7 2`, X/Y → **51.50153 N, 0.17716 W**. The same POI is repeated in several `0x10`
+blocks.
+
+Positions agree with OpenStreetMap to within tens of metres for distinctive names
+(median 52 m over the 28 name matches in one CD-ID 21594 parcel, a figure that
+still includes common names such as chain pubs matched to an unrelated venue). CD-ID 2952 is
+more coarsely geocoded: distinct POIs at one address can share a coordinate.
 
 ### 8.2 Type `0x16` — Feature Record, **20 bytes**
 

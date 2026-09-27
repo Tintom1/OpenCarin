@@ -377,13 +377,13 @@ size. S1 records carry `NAME_PTR(u16)`, `ptr_s3(u16)`, `UNKNOWN(u32)`, `X(i32)`,
 
 | BLOCK_TYPE | slot | section_type | record_size | notes |
 |---|---|---|---:|---|
-| `0x06` POI | S0 (`e0`) | `[HYP]` 0x04/0x18/0x32/0x43/0x4e | 28 B | `02-geo.md` §8.1 verified; RST has 5 candidates for 28 B |
+| `0x06` POI | S0 (`e0`) | 0x32 | 28 B (20 B on DB-REL 22) | `02-geo.md` §8.1; only `T[0x32]` of the 5 candidates is 20 on CD-ID 2952 |
 | `0x0C` | S0 (`e0`) | *confirmed* | 8 B | CF=2; Array of Bounding Boxes (Xmin, Ymin, Xmax, Ymax) |
 | `0x0C` | S1 (`e1`) | *confirmed* | 24 B | CF=2; Road parcels (16B metadata + 8B local BBox) |
 | `0x0C` | S3 (`e3`) | *confirmed* | 12 B | CF=2; Topology/Relation references |
 | `0x0C` | S5 (`e5`) | *confirmed* | text | CF=2; String Blob (Latin-1 null-terminated) referenced by byte offset |
-| `0x10` | S0 (`e0`) | `[HYP]` many | 8 B | CF=2 empirical |
-| `0x10` | S1 (`e1`) | `[HYP]` 0x2f/0x51 | 40 B | CF=2 empirical; 2 RST candidates |
+| `0x10` | S0 (`e0`) | `[HYP]` many | 8 B | POI index: name, type, locality, detail ptr (`02-geo.md` §8.1.1) |
+| `0x10` | S1 (`e1`) | 0x2f | 40 B | POI detail: absolute X/Y + address/phone ptrs; `T[0x51]` is 28 on CD-ID 2952 |
 | `0x09` | S0 (`e0`) | `[HYP]` many | 4 B | CF=0 empirical |
 | `0x09` | S1 (`e1`) | - | ~488 B | CF=0 empirical; no RST match (variable-length blob) |
 
