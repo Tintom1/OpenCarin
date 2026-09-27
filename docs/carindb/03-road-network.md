@@ -184,7 +184,7 @@ Checked on CD-IDs 2952, 21594, 21708 and 21734 (`CF=0`, `CF=2`, and `CF=1` on th
 | S2 `+20` lands in that tile's SECTION_4 on a record boundary (stride `T[0x08]`: 32, or 30 on DB-REL 22) | 100% on all four discs; the `+22` run also stays inside SECTION_4 on CD-IDs 21708 and 21734 (checked there) |
 | S2 `+8..+14` are two ranges, `lo ≤ hi`, first pair both even, second pair both odd | 100% on all four discs (e.g. 134,648 even and 135,855 odd ranges on CD-ID 21594) |
 | S2 `+0/+4` is the centre of the target tile's bbox | 100% on CD-IDs 21708 and 21734 |
-| The linked SECTION_4 segments carry the same street name (CD-ID 2952, where the `0x00` name chain decodes) | 4,465 exact, 1,180 word-reordered variant; the other 1,117 are a road's second name (e.g. `e20` vs `e45`); 567 unnamed |
+| The linked SECTION_4 segments carry the same name (segment name via SECTION_4 `+T[0x09]` → SECTION_2 `+0`) | exact / word-reordered / other name / unnamed: CD-ID 2952 55% / 16% / 19% / 11% (2,839 links); CD-ID 21594 64% / 18% / 18% / 0% (9,791); CD-ID 21708 37% / 37% / 26% / 0.1% (12,932); CD-ID 21734 35% / 47% / 18% / 0% (15,229). On the DVDs, "word-reordered" includes names that add `, locality` (`clavé anselm, roquetes` → `anselm clavé`). "Other name" is the road's other name, often a route number (`shanwar` → `n26`, `wirtenbacher strasse` → `l38`) |
 
 So a `0x0E` entry is: street name → locality → one or more `(0x00 tile, run of road
 segments, house-number ranges)`. This is the data the Destination → Street → House
