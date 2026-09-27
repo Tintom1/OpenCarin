@@ -69,6 +69,58 @@ k = 0…5, aspect ratios 1:1, 1:2, or 2:1.
 
 The 1:1 / 2:1 aspect ratio and the ×64 local scale (`max(LOCAL_X) = side/64 − 1`) hold on both. `find_bbox` below relies on the 98,304 rule, so it does not find the bbox on these discs; use the per-type offsets in §7.4 directly.
 
+Both grids, and the DVD's, come from the quadtree root stored in `0x07`; see below.
+
+#### Spatial index: `0x07` → `0x08` → `0x09` → tiles (2026-09-28)
+
+Every georeferenced tile sits in a quadtree whose root square is stored in `0x07`, and
+the disc carries the index from a grid cell to its tiles:
+
+- **`0x07` layer directory.** One record per map layer: `u32 BLOCK_ID` of the layer's
+  first `0x08` grid block, the root square as `4 × i32` (`x0, y0, x1, y1`), then the
+  layer's parameters (DB-REL 34: 4 × u16, record 28 B; DB-REL 22: 2 × u16, record 24 B).
+  Parameters 1 and 2 look like the display-scale range the layer is drawn at.
+- **`0x08` grid.** Section 0 is `4^k` `u32` entries, one per cell of a `2^k × 2^k` grid over
+  the root square, split over consecutive `0x08` blocks (4,092 entries per 8-sector
+  block). An entry is 0 for an empty cell, otherwise the `BLOCK_ID` of that cell's `0x09`.
+- **`0x09` cell node.** Lists the `BLOCK_ID`s of the tiles of that layer in that cell
+  (from a few samples: section 0 holds small records pointing into section 1, and section 1
+  holds the `u32 BLOCK_ID`s).
+
+Each layer holds one block type. On CD-ID 21594 (CD-ID 21708 has the same eleven layers, with finer grids, and they reference every block of those types too):
+
+| Layer parameters | Grid | Tiles | Referenced / on disc (CD-ID 21594) |
+|---|---|---|---|
+| `(6, 0, 1)` | 256² | `0x00` | 25,974 / 25,974 |
+| `(0, 0, 0)` | 256² | `0x06` | 1,652 / 1,652 |
+| `(2, 1, 120)` | 64² | `0x03` | 1,476 / 1,476 |
+| `(1, 120, 1200)` | 16² | `0x02` | 426 / 426 |
+| `(0, 1200, 3000)` | 8² | `0x01` | 247 / 247 |
+| `(2, 1, 40)` | 64² | `0x16` | 1,996 / 1,996 |
+| `(2, 40, 120)` | 32² | `0x15` | 599 / 599 |
+| `(0, 320, 1200)` | 2² | `0x14` | 79 / 79 |
+| `(1, 120, 320)` | 4² | `0x1C` | 164 / 164 |
+| `(0, 1200, 3000)` | 1 | `0x1D` | 108 / 108 |
+| `(65535, 3000, 65535)` | 1 | `0x1E` | 42 / 42 |
+
+The number of `0x09` blocks equals the number of non-empty cells over all layers (1,153 on
+CD-ID 21594). `0x0E`, `0x0C` and `0x10` are not in the spatial index: `0x10` is reached
+from `0x06`, and `0x0E` links to `0x00` tiles itself (`03-road-network.md` §6.3.1).
+
+**The tile grid follows from the root square.** Every tile is a cell of that quadtree:
+its side is the root side divided by a power of two and its corners are on that grid.
+
+| Disc | Root square (lon, lat of `x0, y0`) | Root side | Tiles on the root grid (`0x06`) |
+|---|---|---|---|
+| CD-ID 2952 | −11.81°, 33.33° | 46 · 2^22 | 730 / 730 |
+| CD-ID 21594 | −36.30°, −10.64° | 2^29 | 1,652 / 1,652 |
+| CD-ID 21708 | −75.00°, −203.91° | 3 · 2^29 | the 98,304-unit grid below is `3 · 2^29 / 2^14` |
+
+The root square is not the data's extent (on CD-ID 21708 it reaches −203.9° latitude); it
+is only the quadtree's frame. On CD-ID 2952 every `0x08` entry points to an empty `0x09`
+(17,057 blocks with no records, 11% of that disc), so DB-REL 22 finds its tiles some
+other way; how is not known.
+
 ### 7.4 Bounding box by block type
 
 The bbox (`4 × int32` = `X_min, Y_min, X_max, Y_max`) immediately follows the

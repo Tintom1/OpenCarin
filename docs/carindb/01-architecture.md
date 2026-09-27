@@ -497,6 +497,12 @@ Decompressed to 1024 bytes. After the header: a 2-section descriptor
        italia\0united kingdom\0norge\0nederland\0france\0belgië\0sverige\0"
 ```
 
+> **Update (2026-09-28):** the repeated quartet is the root square of the spatial
+> quadtree, not the data's extent: on CD-ID 21708 it is lon −75.00..214.91, lat
+> −203.91..86.00, side `3 · 2^29`, and `3 · 2^29 / 2^14` is the 98,304-unit tile grid. The
+> 24-byte records around it form the **layer directory**: `u32 BLOCK_ID` of a layer's
+> `0x08` grid, the root square, and the layer's parameters. See `02-geo.md` §7.3.
+
 ### 4.3 `0x0B` — Alphabetical Index (sectors 7 and 8, 1 sector each)
 
 ```
