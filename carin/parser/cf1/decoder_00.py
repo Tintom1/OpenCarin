@@ -232,8 +232,41 @@ def dec_s14(ctx: Cf1Context) -> None:
             ctx.b(cur + 3, ctx.dst[prev + 3])
 
 
+_SECT_REC = {0: T_REC_S0, 1: T_REC_S0, 2: T_REC_S0, 3: T_REC_S3, 4: T_REC_S4,
+             5: T_REC_S5, 6: T_REC_S6, 7: T_REC_S7, 9: T_REC_S9, 10: T_REC_S10,
+             11: T_REC_S11, 12: T_REC_S12, 13: T_REC_S13}
+
+
+def _sections_end(ctx: Cf1Context) -> int:
+    """First byte past the numbered record sections 0..13.
+
+    The name blob lives at or after this offset; everything below it is
+    already-decoded record data that dec_text must never overwrite.
+    """
+    hi = 0
+    for idx, key in _SECT_REC.items():
+        e = ctx.entry(idx)
+        if not e.count:
+            continue
+        try:
+            rec = ctx.T(key)
+        except Cf1Error:
+            continue
+        hi = max(hi, e.off + e.count * rec)
+    return hi
+
+
 def dec_text(ctx: Cf1Context) -> None:
-    """pbp+0x4862 — blob dei nomi, codice a prefisso + dizionario di blocco."""
+    """pbp+0x4862 — blob dei nomi, codice a prefisso + dizionario di blocco.
+
+    The DB-REL >= 23 pass ends with two optional dec_text calls whose flag
+    bits are read from the stream's tail padding, so they fire spuriously on
+    a large fraction of blocks with a garbage (start, end) range. If that
+    range reaches back into the numbered sections, writing it would overwrite
+    already-decoded geometry (section 7 shape points turn into repeated "aa",
+    0x6161). The bits are still consumed exactly as before, so the stream
+    stays aligned; only the writes are suppressed.
+    """
     pb = ctx.ptrbits
     start = ctx.g(pb)
     end = ctx.g(pb)
@@ -243,25 +276,28 @@ def dec_text(ctx: Cf1Context) -> None:
     for _ in range(6):
         n = ctx.g(5)
         words.append(bytes(ctx.g(7) for _ in range(n)))
+    ok = start <= end < len(ctx.dst) and start >= _sections_end(ctx)
     p = start
     while p <= end and p < len(ctx.dst):
         code = ctx.g(2)
         if code == 0:
-            ctx.dst[p] = CHARMAP[ctx.g(1)]
+            v = CHARMAP[ctx.g(1)]
         elif code == 1:
-            ctx.dst[p] = CHARMAP[2 + ctx.g(2)]
+            v = CHARMAP[2 + ctx.g(2)]
         elif code == 2:
-            ctx.dst[p] = CHARMAP[6 + ctx.g(3)]
+            v = CHARMAP[6 + ctx.g(3)]
         else:
             v = ctx.g(7)
-            if v > 0x26:
-                ctx.dst[p] = v
-            elif v > 0x1B:
-                w = words[v - 0x21]
-                ctx.dst[p : p + len(w)] = w
-                p += len(w) - 1
-            else:
-                ctx.dst[p] = CHARMAP[14 + v]
+            if v <= 0x26:
+                if v > 0x1B:
+                    w = words[v - 0x21]
+                    if ok:
+                        ctx.dst[p : p + len(w)] = w
+                    p += len(w)
+                    continue
+                v = CHARMAP[14 + v]
+        if ok:
+            ctx.dst[p] = v
         p += 1
 
 
