@@ -356,8 +356,11 @@ N = 4 descriptor entries (`e0..e3`). No bbox. Source: `docs/fw/pbp_0x0E_decoder.
 | S1 (`e1`) | `0x41` | 6 B (4 on DB-REL 22) | firmware `T[0x41]`, RST[0x41]=6, CF=1 empirical; read it from the table |
 | S2 (`e2`) | `0x42` | 24 B | firmware `T[0x42]`, RST[0x42]=24, CF=1 empirical |
 
-S2 record layout: `+0` i32 x_anc; `+4` i32 y_anc; `+8..+14` 4×u16 raw_delta;
-`+16` i32 anchor_f2; `+20` u16 val1; `+22` u16 val2. See `03-road-network.md` §6.3.1.
+S2 record layout: `+0` i32 X, `+4` i32 Y = centre of the linked `0x00` tile;
+`+8..+14` 4×u16 = even low/high and odd low/high house numbers (`0x7FFF` = none);
+`+16` u32 `BLOCK_ID` of the `0x00` tile; `+20` u16 byte offset into its SECTION_4;
+`+22` u16 SECTION_4 record count. S0 `A` points to the street name and `C` (if
+non-zero) to a locality. See `03-road-network.md` §6.3.1.
 
 #### BLOCK_TYPE `0x14` / `0x15` / `0x16` — geo labels (CF=1 / CF=0)
 
@@ -630,5 +633,5 @@ def encode_carin_str(s: str) -> bytes:
 
 ## Note on 0x00 vs 0x0E Geometry
 The database splits the road network into two distinct layers to save runtime memory:
-1. **0x0E (Routing Graph)**: Contains topology (nodes, edges, turn restrictions) and crude spatial extents (local bounding boxes) for the A* pathfinding algorithm. It does not store smooth polylines.
+1. **0x0E (street-name directory)**: Maps each street name (and locality) to runs of road segments in `0x00` tiles, with house-number ranges. It stores no geometry and no topology of its own (see `03-road-network.md` §6.3.1; the earlier "routing graph / bounding boxes" reading came from treating house numbers as coordinate deltas).
 2. **0x00 (Map Drawing)**: Contains the high-resolution, continuous polylines for actual map rendering on the LCD. Loaded dynamically only for regions currently on screen.

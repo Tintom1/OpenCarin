@@ -1,7 +1,8 @@
 # Part 3 — Road Network Tables (Parcels)
 
 > **Status: ✅ VERIFIED (STEP 2 & 3 complete, 2026-09-19).** Block/section structure
-> AND field semantics for `0x0E` are fully verified from firmware traces. Spatial
+> AND field semantics for `0x0E` are fully verified from firmware traces (S0 `A`/`C` and
+> the S2 fields were reinterpreted from disc data on 2026-09-27: §6.3.1). Spatial
 > lookup via `find_parcel(vol, X, Y)` oracle 10/10 PASS. `0x0D`/`0x0F`/`0x11` = TEXT
 > address-lookup index (not spatial). Type `0x00` field semantics are now KNOWN (map drawing). Types `0x01`–`0x03` are assumed identical.
 >
@@ -59,7 +60,10 @@ but **field semantics are NOT verified** and must not be assumed.
 ```
 Verified on sample:
 * `D` is a **pointer to SECTION_1**, advances in steps of 6 (= S1 record size).
-* `A` (0x798C, 0x799A, 0x79B1, …) is a **pointer into SECTION_2**, monotonically non-decreasing.
+* `A` (0x798C, 0x799A, 0x79B1, …) is **not** a pointer into SECTION_2: it points to the
+  record's **street name**, a NUL-terminated Latin-1 string in the text that follows
+  SECTION_2 (it is monotonic because records are alphabetical). See §6.3.1,
+  "`0x0E` is the street-name directory".
 * `FLAGS` ∈ `{0x00,0x01,0x02,0x10,0x11,0x12}` (3 active bits: lo=bits[1:0] via `getbits(2)`, hi=bit4 via `getbits(1)<<4`).
   Global distribution across 563 CF=1 blocks (218 k records): 0x00=67.1 %, 0x10=26.4 %, 0x01=4.5 %, 0x11=1.3 %, 0x02=0.6 %, 0x12=0.1 %.
   **Hypothesis "bit4 = one-way": FALSIFIED by full firmware static analysis (2026-09-20).**
@@ -92,8 +96,9 @@ Verified on sample:
 * `B` ∈ `{1,2,3,4,5,6}` in CF=1 blocks (3-bit field, `getbits(3)`, inherited across records).
   Distribution: B=1 43 %, B=4 19 %, B=5 15 %, B=3 14 %, B=2 6 %, B=6 3 %.
   Functional class (road category); CF=0 blocks may also carry the sentinel value `0xFF` ("absent").
-* `C` = `0x0000` in `0x0E` blocks; in `0x0C` blocks it is an internal pointer to the
-  name blob.
+* `C` is usually `0x0000`; when non-zero it points to a **locality** string in the same
+  text area, used to tell apart streets with the same name (e.g. `haddington road` →
+  `dublin 4`). In `0x0C` blocks it is an internal pointer to the name blob.
 
 ```python
 PARCEL_S0_FMT = ">HBBHH"        # 8 bytes: A, FLAGS, B, C(name/aux ptr or 0), D(ptr to S1, stride 6)
@@ -126,8 +131,8 @@ base `0x0E` topology.
   - `+2 (u8)`: span count. If `getbits(1)`==1 → `getbits(bits_needed(S2_count)) + 2`, else `1`.
   - `+3 (u8)`: flag. `getbits(1)`.
   - `+4–5`: zero (not decoded).
-- **Section 2** (Geometry, `T[0x42]` = 24 bytes): delta-decoded from bitstream using
-  anchor table. Algorithm (✅ VERIFIED 2026-09-19, oracle: pbp m68k write trace — `pbp+0x41c0`):
+- **Section 2** (street → map link, `T[0x42]` = 24 bytes; earlier read as geometry):
+  unpacked from the bitstream using the anchor table. Algorithm (✅ VERIFIED 2026-09-19, oracle: pbp m68k write trace — `pbp+0x41c0`):
   - `idx_N = getbits(bits_needed(count_N))` → selects 12-byte anchor
   - `has_deltas = getbits(1)`
   - if `has_deltas`: for each of 4 fields: `is_16=getbits(1)`; `val=getbits(16 if is_16 else M_hi)`
@@ -147,13 +152,57 @@ base `0x0E` topology.
     | `+20`  | u16  | `val1 = getbits(13) << 1` |
     | `+22`  | u16  | `val2 = getbits(M_lo)` |
 
-  - **Note**: the firmware stores raw anchor + raw compressed deltas — it does NOT
-    pre-compute absolute coordinates. The routing engine applies sign-extension and
-    anchor+delta at query time. The `is_16` flag is consumed from the bitstream but NOT
-    stored in the record; M_hi (from the block pre-header) is needed to interpret
-    `raw_delta[k]` when `is_16=0`.
+  - **Field meaning** (2026-09-27, see "`0x0E` is the street-name directory" below):
 
-**S2 coordinate reconstruction** (✅ VERIFIED STEP 5, oracle 10/10 PASS 2026-09-19):
+    | offset | size | content |
+    |--------|------|---------|
+    | `+0`   | i32  | X of the **centre of the target `0x00` tile** (anchor bytes 0-3) |
+    | `+4`   | i32  | Y of the centre of the target tile (anchor bytes 4-7) |
+    | `+8`   | u16  | **even house numbers, low** (`0x7FFF` pair = none) |
+    | `+10`  | u16  | even house numbers, high |
+    | `+12`  | u16  | **odd house numbers, low** (`0x7FFF` pair = none) |
+    | `+14`  | u16  | odd house numbers, high |
+    | `+16`  | u32  | **`BLOCK_ID` of a type `0x00` map tile** (anchor bytes 8-11) |
+    | `+20`  | u16  | `val1`: byte offset of a record in that tile's **SECTION_4** (road segments) |
+    | `+22`  | u16  | `val2`: number of consecutive SECTION_4 records |
+
+    The four "deltas" are **not coordinates**: they are unsigned house-number ranges, and
+    there is no sign extension to apply. The anchor table in the pre-header is a per-block
+    list of the `0x00` tiles the block links to: `(centre X, centre Y, BLOCK_ID)`.
+  - The `is_16` flag is consumed from the bitstream but not stored in the record.
+
+#### `0x0E` is the street-name directory (2026-09-27)
+
+Checked on CD-IDs 2952, 21594, 21708 and 21734 (`CF=0`, `CF=2`, and `CF=1` on the CDs):
+
+| Check | Result |
+|---|---|
+| S0 `A` points to a NUL-terminated street name in the text after SECTION_2 | 122,743 / 122,743 records (CD-ID 21708, 150 `CF=2` blocks); same on both CDs |
+| S0 records are in alphabetical order of that name | 97% (CD-ID 21708); accented names account for the rest |
+| S0 `C`, when non-zero, points to a locality string (e.g. `haddington road` → `dublin 4`) | 24,137 / 24,137 (CD-ID 21708) |
+| S2 `+16` is the `BLOCK_ID` of a type `0x00` block with that exact length | 100%: 455,974 records (CD-ID 21594, plain), 6,942 (CD-ID 2952), 23,451 (CD-ID 21708, `CF=2`), 23,724 (CD-ID 21734, `CF=2`) |
+| S2 `+20` lands in that tile's SECTION_4 on a record boundary (stride `T[0x08]`: 32, or 30 on DB-REL 22) | 100% on all four discs; the `+22` run also stays inside SECTION_4 on CD-IDs 21708 and 21734 (checked there) |
+| S2 `+8..+14` are two ranges, `lo ≤ hi`, first pair both even, second pair both odd | 100% on all four discs (e.g. 134,648 even and 135,855 odd ranges on CD-ID 21594) |
+| S2 `+0/+4` is the centre of the target tile's bbox | 100% on CD-IDs 21708 and 21734 |
+| The linked SECTION_4 segments carry the same street name (CD-ID 2952, where the `0x00` name chain decodes) | 4,465 exact, 1,180 word-reordered variant; the other 1,117 are a road's second name (e.g. `e20` vs `e45`); 567 unnamed |
+
+So a `0x0E` entry is: street name → locality → one or more `(0x00 tile, run of road
+segments, house-number ranges)`. This is the data the Destination → Street → House
+number flow needs. The block itself holds no road geometry and no topology; `S2`
+plotted as `anchor + delta` produces the "disconnected dashes" noted below because the
+anchor is a tile centre and the "deltas" are house numbers. Where the router gets its
+topology from is **not** settled by this: the only road topology found so far is in
+`0x00` (SECTION_4 end nodes, SECTION_6 boundary nodes), which contradicts the firmware
+reading above that the router never requests `0x00`.
+
+**Known decoder issue**: on CD-ID 21708 the `CF=1` `0x0E` blocks (563 of 74,247) decode
+with S2 out of sync: 78% valid tile links, 15% valid house-number pairs over 40 blocks,
+regardless of `subrel`. The same decoder is 100% on the CDs' `CF=1` blocks (40 blocks
+each), and `CF=2` blocks are unaffected. `decode_s2_coords` should not be used as
+geometry.
+
+**S2 coordinate reconstruction** (superseded 2026-09-27: `+8..+14` are house numbers, so
+`anchor + delta` is not a position; kept for reference):
 `decode_block` stores `M_hi` at `decoded[7]` and `M_lo` at `decoded[6]` after decoding a
 0x0E block (bytes normally zeroed for CF). `decode_s2_coords(decoded, table)` reads M_hi
 from `decoded[7]` and reconstructs absolute coordinates:
@@ -262,6 +311,10 @@ Observed sides: 98,304 / 196,608 / 393,216 / 786,432 / 1,572,864 / 3,145,728.
 Full POI record layout → [`02-geo.md`](02-geo.md) §8.1.
 
 ## Discovery: Dual-Graph Architecture (Routing vs Display)
+> **Update (2026-09-27):** the "dashes" are explained: S2 has no geometry at all. Its
+> anchor is the centre of a linked `0x00` tile and its four "deltas" are house-number
+> ranges (§6.3.1). The `0x0E` → `0x00` link is S2 `+16/+20/+22`.
+>
 > **CRITICAL NOTE (2026-09-22):** Section 2 of 0x0E blocks DOES NOT contain high-resolution map drawing geometry (polylines).
 > Instead, it contains simplified routing heuristic segments or local bounding boxes used exclusively by the A* routing engine.
 > Plotting S2 points yields millions of disconnected diagonal 'dashes' corresponding to the spatial extents of edges.

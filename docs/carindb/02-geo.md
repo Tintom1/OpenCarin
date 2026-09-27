@@ -82,7 +82,7 @@ the bbox with a grid constraint (`carin.parser.iso.find_bbox`): sides multiple o
 | `0x06` | `0x10` | 60/60 |
 | `0x14`, `0x15`, `0x16`, `0x1C` | `0x20` | 60/60 |
 | `0x1D`, `0x1E` | `0x20` | 43/60, 20/39 |
-| `0x0C`, `0x0E`, `0x10`, `0x0F`, `0x11`, `0x17`, `0x19` | — | **no bbox**: indirectly georeferenced |
+| `0x0C`, `0x0E`, `0x10`, `0x0F`, `0x11`, `0x17`, `0x19` | — | **no bbox**: indirectly georeferenced (`0x0E`: each S2 record names a `0x00` tile, see `03-road-network.md` §6.3.1) |
 
 > **Note for CF=1 work:** the bbox at `0x44` sits inside the plaintext prologue, so
 > it is readable on `CF=1` blocks *without decompressing* — the basis of the

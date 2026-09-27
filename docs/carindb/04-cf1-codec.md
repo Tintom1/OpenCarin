@@ -308,6 +308,10 @@ anchor_f2 (anchor bytes 8–11, previously missing); `+20` u16 val1 = `getbits(1
 `+22` u16 val2 = `getbits(M_lo)`. End-to-end check sector 2252227: 0/133 bad anchor
 indices, 556/556 non-zero val1/val2. See `docs/carindb/03-road-network.md` §6.3.1 for
 full verified layout table and `docs/fw/pbp_0x0E_decoder.asm` for write trace.
+The bitstream layout stands; the field *meaning* was revised on 2026-09-27: `raw_delta`
+are house-number ranges, `anchor_f2` is a `0x00` `BLOCK_ID`, `val1`/`val2` are a
+SECTION_4 offset and count. The `CF=1` S2 decode is 100% consistent on CD-IDs 2952
+and 21594 but loses sync on CD-ID 21708 (see `03-road-network.md` §6.3.1).
 
 ## 9.11.9 `encode_type0E` — CF=1 serializer (STEP 4, ✅ 2026-09-19)
 

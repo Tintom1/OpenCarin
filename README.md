@@ -41,7 +41,7 @@ We have made major progress on the binary format. Every technical finding below 
   * Fully decoded type `0x0E` (road parcels, 74,247 blocks): S0/S1 verified 2026-09-18; Section 2 geometry layout verified 2026-09-19 via m68k firmware write trace (`pbp+0x41c0`). The 24-byte S2 record stores raw anchor coordinates + raw compressed deltas; the routing engine applies sign-extension at query time. 0/133 bad anchor indices on sector 2252227.
     * CD discs, both CD-IDs: the S0 → S1 → S2 structure holds on 100% of plain and decoded blocks.
     * The S1 record size is `T[0x41]`, which is 4 on DB-REL 22, not 6.
-    * On two sampled CD-ID 21594 blocks, the decoded S2 points sit a median 47–55 m from OpenStreetMap roads, against about 200 m for random points. Only about a quarter are within 15 m, so precision beyond "the right area" is not yet established.
+    * The S2 fields mean something other than first thought: S2 holds no geometry, but a link to a run of road segments in a `0x00` map tile plus that street's even/odd house-number ranges. Its anchor is the tile's centre. Checked on CD-IDs 2952, 21594, 21708 and 21734; see [`docs/carindb/03-road-network.md`](docs/carindb/03-road-network.md) §6.3.1.
 
 ---
 
@@ -50,14 +50,17 @@ We have made major progress on the binary format. Every technical finding below 
 While the foundation is cracked, building a full compiler from OpenStreetMap requires tackling the remaining core reverse-engineering tasks. **We are looking for reverse engineers, embedded firmware hackers, and GIS enthusiasts to collaborate on:**
 
 ### 1. Road Network Parcel Semantics (`BLOCK_TYPE = 0x0E`) 🔴 Critical
-* **74,247 blocks** in the database represent the actual road graph.
-* The physical structure is known: 8-byte `SECTION_0` records pointing to `SECTION_1` (stride `T[0x41]`: 6, or 4 on DB-REL 22) and `SECTION_2`, with flag fields (`0x00, 0x01, 0x02, 0x10, 0x11`).
-* **Needed**: Reverse-engineer the exact semantic meaning of each field by tracing the routing engine in the disassembler (e.g. `db_pub+0x1e98` in Mk3 firmware or `pbp` in CC-93).
+* **74,247 blocks** (CD-ID 21708). From disc data they are a **street-name directory**, not the road graph:
+  * `SECTION_0` (8 B, alphabetical) = street name pointer, `FLAGS`, `B`, locality pointer or 0, pointer to `SECTION_1` (stride `T[0x41]`: 6, or 4 on DB-REL 22).
+  * `SECTION_2` (24 B) = a `0x00` tile (`BLOCK_ID` and centre), a run of that tile's road segments (`SECTION_4` offset + count), and even/odd house-number ranges.
+  * Details and checks: [`docs/carindb/03-road-network.md`](docs/carindb/03-road-network.md) §6.3.1.
+* **Still needed**: the meaning of `FLAGS` (`0x00, 0x01, 0x02, 0x10, 0x11`; bit 4 is common on word-reordered name variants) and `B`; a fix for the `CF=1` S2 decode on CD-ID 21708; and where the router actually gets its topology, since `0x0E` holds none.
 * **Crucial Question**: Does the firmware route planner rely on **precomputed graph shortcuts / hierarchical boundaries** between parcels, or does it dynamically traverse the graph at runtime using topology and costs? (See [docs/PROMPT_SEMANTICA_STRADALE.md](docs/PROMPT_SEMANTICA_STRADALE.md) for full context).
 
 ### 2. Georeferencing Non-BBox Parcels (`0x0C`, `0x0E`, `0x10`) 🔴 Critical
 * Unlike POI (`0x06`) and feature (`0x16`) blocks, road network parcels (`0x0E`) and street name parcels (`0x10`) have no explicit bounding box in their headers.
 * They are indexed hierarchically through index blocks (`0x0D`, `0x0F`, `0x11`). We need to document the exact lookup chain from coordinate / region to parcel block.
+* `0x0E` is now georeferenced indirectly: every `SECTION_2` record names a `0x00` tile, which has a bbox. `0x10` POI details carry absolute coordinates. `0x0C` is still open.
 
 ### 3. Decoder Ports for the Remaining Types 🟠 High
 * Port the bit-packing decoder logic from MIPS firmware (`db_pub`) for the remaining block types into Python (`carin/parser/cf1/`).
