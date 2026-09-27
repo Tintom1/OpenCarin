@@ -38,6 +38,13 @@ Created         : 2015-08-04 16:09:55
 
 > `carinet16s512` in ABSTRACT independently confirms the CARIN addressing unit is **512** bytes ("s512").
 
+> **CD discs differ.** On CD (e.g. Carminat CNI1, CD-IDs 2952 and 21594):
+> - the database is a single `/carindb` file;
+> - there is no `DB_0`/`DB_1` split;
+> - the addressing unit is **2048** bytes. CD-ID 21594's ABSTRACT reads `carinet16s2048`.
+>
+> `BLOCK_ID >> 8` counts 2048-byte sectors and `UNCOMPRESSED_SIZE` counts 2048-byte sectors too. With that unit, the block chain covers 100% of the file with no gaps on both CDs; with 512 it breaks after the first block.
+
 ### 1.1 Virtual Address Space `DB_0` + `DB_1`
 
 `DB_0` and `DB_1` form **a single sector space**. Each file spans a window of
@@ -344,9 +351,9 @@ N = 4 descriptor entries (`e0..e3`). No bbox. Source: `docs/fw/pbp_0x0E_decoder.
 
 | slot | section_type | record_size | sources |
 |---|---:|---:|---|
-| prologue (verbatim) | `0x2b` | 48 B | firmware `T[0x2b]`, RST[0x2b]=48 |
+| prologue (verbatim) | `0x2b` | 48 B (40 on DB-REL 22) | firmware `T[0x2b]`, RST[0x2b]=48 |
 | S0 (`e0`) | `0x2d` | 8 B | firmware `T[0x2d]`, RST[0x2d]=8, CF=1 empirical |
-| S1 (`e1`) | `0x41` | 6 B | firmware `T[0x41]`, RST[0x41]=6, CF=1 empirical |
+| S1 (`e1`) | `0x41` | 6 B (4 on DB-REL 22) | firmware `T[0x41]`, RST[0x41]=6, CF=1 empirical; read it from the table |
 | S2 (`e2`) | `0x42` | 24 B | firmware `T[0x42]`, RST[0x42]=24, CF=1 empirical |
 
 S2 record layout: `+0` i32 x_anc; `+4` i32 y_anc; `+8..+14` 4×u16 raw_delta;

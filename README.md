@@ -21,17 +21,27 @@ Official map updates ceased years ago (mostly frozen around 2015–2019). **The 
 
 We have made major progress on the binary format. Every technical finding below is byte-verified on real disc images (e.g. BMW High 2015 `NAV_DB_21708.ISO` and 2019 `NAV_DB_21734.bin`):
 
-* ✅ **Addressing & Block Chaining Solved**: DB sector size is **512 bytes** (not 2048). Virtual address space seamlessly spans `DB_0` (first 2 GiB) and `DB_1` via `virtual_sector = file_index * 0x400000 + local_sector`. No gaps, 100% block coverage.
+* ✅ **Addressing & Block Chaining Solved**: the addressing unit depends on the medium.
+  * **DVD** (BMW MK4): the sector size is **512 bytes**, and the virtual address space spans `DB_0` (first 2 GiB) and `DB_1` via `virtual_sector = file_index * 0x400000 + local_sector`.
+  * **CD** (e.g. Carminat CNI1): the database is a single `/carindb` file and the unit is **2048 bytes**.
+  * The disc's `ABSTRACT` names the unit: `carinet16s512` on `NAV_DB_21708`, `carinet16s2048` on CD-ID 21594.
+  * With the right unit, the block chain covers 100% of the file with no gaps (checked on DVD and on CD-IDs 2952 and 21594).
 * ✅ **Coordinate System Cracked**: 
   $$X = (lon + 30.0) \times \frac{2 \times 10^9}{360}, \quad Y = (lat + 0.0) \times \frac{2 \times 10^9}{360}$$
   Origin is at $30^\circ\text{ W}$ on the Equator, linear in latitude (no Mercator projection). 1 unit $\approx 2\text{ cm}$ at the equator. Verified with 38 European city anchors (RMS error $2.0\text{ km}$, matching published city-center offsets).
-* ✅ **Quadtree Grid & Bounding Boxes Mapped**: Fixed tile boundaries on multiples of 98,304 units ($3 \times 2^{15}$).
-* ✅ **POI Records Decoded (`0x06`)**: 28-byte records, exact local scale 64 ($1.2\text{ m}$ resolution), containing over 2 million POIs linked to street parcels and brand catalogs.
+* ✅ **Quadtree Grid & Bounding Boxes Mapped**: on the DVD, tile boundaries are fixed on multiples of 98,304 units ($3 \times 2^{15}$). CD discs use a different grid, so the 98,304 rule does not apply there:
+  * CD-ID 21594: tile sides are powers of two, $2^{17}$ to $2^{21}$.
+  * CD-ID 2952: tile sides are $46 \times 2^{16}$, halved per level.
+  * On both, the 1:1 / 2:1 aspect and the ×64 local scale still hold.
+* ✅ **POI Records Decoded (`0x06`)**: `T[0x32]`-byte records (28; 20 on DB-REL 22), exact local scale 64 ($1.2\text{ m}$ resolution), containing over 2 million POIs linked to street parcels and brand catalogs.
 * ✅ **Feature Records Decoded (`0x16`, `0x14`, `0x1C`, `0x1D`, `0x1E`)**: 20-byte records with absolute coordinates and Latin-1 name strings.
 * ✅ **`COMPRESSION_FLAG = 1` Cracked (September 2026)**:
   Covering 30% of all disc blocks (96,011 blocks), this was **not a dictionary compression codec** (all LZ/Huffman variants had failed). By reverse-engineering navigation unit firmware (`pbp` in m68k CC-93, `db_pub` in MIPS32 Mk3/RR), we discovered it is **structure-driven bit-packing** parameterized by the superblock's `RECORD_SIZE_TABLE`.
   * Fully decoded 1,200/1,200 type `0x00` blocks, verified against actual European road networks (El Hierro, Algarve, Alentejo).
   * Fully decoded type `0x0E` (road parcels, 74,247 blocks): S0/S1 verified 2026-09-18; Section 2 geometry layout verified 2026-09-19 via m68k firmware write trace (`pbp+0x41c0`). The 24-byte S2 record stores raw anchor coordinates + raw compressed deltas; the routing engine applies sign-extension at query time. 0/133 bad anchor indices on sector 2252227.
+    * CD discs, both CD-IDs: the S0 → S1 → S2 structure holds on 100% of plain and decoded blocks.
+    * The S1 record size is `T[0x41]`, which is 4 on DB-REL 22, not 6.
+    * On two sampled CD-ID 21594 blocks, the decoded S2 points sit a median 47–55 m from OpenStreetMap roads, against about 200 m for random points. Only about a quarter are within 15 m, so precision beyond "the right area" is not yet established.
 
 ---
 
@@ -41,7 +51,7 @@ While the foundation is cracked, building a full compiler from OpenStreetMap req
 
 ### 1. Road Network Parcel Semantics (`BLOCK_TYPE = 0x0E`) 🔴 Critical
 * **74,247 blocks** in the database represent the actual road graph.
-* The physical structure is known: 8-byte `SECTION_0` records pointing to `SECTION_1` (stride 6) and `SECTION_2`, with flag fields (`0x00, 0x01, 0x02, 0x10, 0x11`).
+* The physical structure is known: 8-byte `SECTION_0` records pointing to `SECTION_1` (stride `T[0x41]`: 6, or 4 on DB-REL 22) and `SECTION_2`, with flag fields (`0x00, 0x01, 0x02, 0x10, 0x11`).
 * **Needed**: Reverse-engineer the exact semantic meaning of each field by tracing the routing engine in the disassembler (e.g. `db_pub+0x1e98` in Mk3 firmware or `pbp` in CC-93).
 * **Crucial Question**: Does the firmware route planner rely on **precomputed graph shortcuts / hierarchical boundaries** between parcels, or does it dynamically traverse the graph at runtime using topology and costs? (See [docs/PROMPT_SEMANTICA_STRADALE.md](docs/PROMPT_SEMANTICA_STRADALE.md) for full context).
 
@@ -49,8 +59,10 @@ While the foundation is cracked, building a full compiler from OpenStreetMap req
 * Unlike POI (`0x06`) and feature (`0x16`) blocks, road network parcels (`0x0E`) and street name parcels (`0x10`) have no explicit bounding box in their headers.
 * They are indexed hierarchically through index blocks (`0x0D`, `0x0F`, `0x11`). We need to document the exact lookup chain from coordinate / region to parcel block.
 
-### 3. Decoder Ports for Types `0x14`–`0x16` 🟠 High
-* Port the bit-packing decoder logic from MIPS firmware (`db_pub`) for the remaining block types into Python (`carin/parser/cf1.py`). Type `0x0E` is fully ported and verified (2026-09-19).
+### 3. Decoder Ports for the Remaining Types 🟠 High
+* Port the bit-packing decoder logic from MIPS firmware (`db_pub`) for the remaining block types into Python (`carin/parser/cf1/`).
+  * Already ported: types `0x00`, `0x0E` and `0x14`–`0x16`.
+  * On CD-ID 21594, the only `COMPRESSION_FLAG = 1` blocks without a decoder are types `0x1C`–`0x1E` (116 blocks).
 
 ### 4. OpenStreetMap to CARiN Serializer & ISO Compiler 🟡 Ongoing
 * Pipeline to parse OSM PBF data (`osmium`), partition nodes/ways into 512-byte sector-aligned parcels, compute coordinate transforms, write CARiN block headers, and package a bootable ISO 9660 filesystem.

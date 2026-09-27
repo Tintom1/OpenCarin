@@ -60,6 +60,15 @@ All tile boundaries are exact multiples of **98,304 units** (= 3·2^15 = 0.01768
 origin at `(0, 0)` = 30° W on the equator. Observed sides are `98304 · 2^k` for
 k = 0…5, aspect ratios 1:1, 1:2, or 2:1.
 
+**This grid is DVD-specific.** On the CD discs, no `0x06` tile has its edges on the 98,304 grid (0/730 on CD-ID 2952, 0/1,652 on CD-ID 21594). Their tiles also aren't aligned to a multiple of their own side.
+
+| disc | observed sides |
+|---|---|
+| CD-ID 21594 | powers of two, `2^17 … 2^21` |
+| CD-ID 2952 | `46 · 2^16 / 2^k` (3,014,656 halving down) |
+
+The 1:1 / 2:1 aspect ratio and the ×64 local scale (`max(LOCAL_X) = side/64 − 1`) hold on both. `find_bbox` below relies on the 98,304 rule, so it does not find the bbox on these discs; use the per-type offsets in §7.4 directly.
+
 ### 7.4 Bounding box by block type
 
 The bbox (`4 × int32` = `X_min, Y_min, X_max, Y_max`) immediately follows the
