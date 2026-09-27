@@ -50,11 +50,15 @@ We have made major progress on the binary format. Every technical finding below 
 While the foundation is cracked, building a full compiler from OpenStreetMap requires tackling the remaining core reverse-engineering tasks. **We are looking for reverse engineers, embedded firmware hackers, and GIS enthusiasts to collaborate on:**
 
 ### 1. Road Network Parcel Semantics (`BLOCK_TYPE = 0x0E`) 🔴 Critical
-* **74,247 blocks** (CD-ID 21708). From disc data they are a **street-name directory**, not the road graph:
+* **74,247 blocks** (CD-ID 21708). From disc data they look like a **street-name directory** rather than the road graph:
   * `SECTION_0` (8 B, alphabetical) = street name pointer, `FLAGS`, `B`, locality pointer or 0, pointer to `SECTION_1` (stride `T[0x41]`: 6, or 4 on DB-REL 22).
-  * `SECTION_2` (24 B) = a `0x00` tile (`BLOCK_ID` and centre), a run of that tile's road segments (`SECTION_4` offset + count), and even/odd house-number ranges.
+  * `SECTION_2` (24 B) = a `0x00` tile (`BLOCK_ID` and centre), a run of that tile's road segments (`SECTION_4` offset + count), and even/odd house-number ranges. The house numbers match OpenStreetMap addresses: on CD-ID 21734, 98.9% of 1,355 OSM addresses near the linked segments fall in a range of their street, and 85.5% in the range of their nearest segment.
   * Details and checks: [`docs/carindb/03-road-network.md`](docs/carindb/03-road-network.md) §6.3.1.
-* **Still needed**: the meaning of `FLAGS` (`0x00, 0x01, 0x02, 0x10, 0x11`; bit 4 is common on word-reordered name variants) and `B`; and where the router actually gets its topology, since `0x0E` holds none.
+* These field meanings come from disc data (structure and cross-checks), not from firmware.
+* **Still needed**:
+  * Confirm how the firmware uses these fields by tracing the routing and query engines in the disassembler (e.g. `db_pub+0x1e98` in Mk3 firmware or `pbp` in CC-93).
+  * The meaning of `FLAGS` (`0x00, 0x01, 0x02, 0x10, 0x11`; bit 4 is common on word-reordered name variants), `B`, the `SECTION_1` flag byte and `SECTION_1` bytes +4–5.
+  * Where the router gets its topology: no node or neighbour references have been found in the decoded `0x0E` fields.
 * **Crucial Question**: Does the firmware route planner rely on **precomputed graph shortcuts / hierarchical boundaries** between parcels, or does it dynamically traverse the graph at runtime using topology and costs? (See [docs/PROMPT_SEMANTICA_STRADALE.md](docs/PROMPT_SEMANTICA_STRADALE.md) for full context).
 
 ### 2. Georeferencing Non-BBox Parcels (`0x0C`, `0x0E`, `0x10`) 🔴 Critical
