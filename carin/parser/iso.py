@@ -97,10 +97,10 @@ class IsoImage:
 @dataclass
 class CarinBlock:
     sector: int          # absolute virtual CARINdb sector
-    length: int          # on-disk length, in 512-byte sectors
+    length: int          # on-disk length, in volume sectors (512 DVD, 2048 CD)
     type: int
     comp: int            # 0 = raw, 1 = structure-aware bit packing, 2 = zlib
-    usize: int           # decompressed size, in 512-byte sectors
+    usize: int           # decompressed size, in volume sectors
     raw: bytes           # on-disk bytes, header included
     data: Optional[bytes]  # decoded bytes, header included (None if the type has no decoder yet)
 
@@ -120,15 +120,45 @@ class CarinBlock:
         ]
 
 
-class CarinVolume:
-    """CARINdb block address space spanning DB_0 .. DB_n."""
+DVD_DB_PATHS = ("/DB/DB_0", "/DB/DB_1")   # split volume, 512-byte sectors
+CD_DB_NAME = "carindb"                    # single file on CD discs, 2048-byte sectors
 
-    def __init__(self, image: IsoImage, db_paths=("/DB/DB_0", "/DB/DB_1")):
+
+class CarinVolume:
+    """CARINdb block address space spanning DB_0 .. DB_n, or a single carindb.
+
+    Two on-disc layouts exist. DVD-era images split the database into
+    /DB/DB_0, /DB/DB_1 and count block addresses (BLOCK_ID >> 8, length,
+    usize) in 512-byte sectors. CD-era images carry one /carindb file and
+    count the same fields in 2048-byte sectors. When `db_paths` is not given
+    the layout is detected from the image; `sector_size` overrides the unit.
+
+    `subrel` is the CF=1 sub-revision (see cf1.probe). The default keeps the
+    historical value 9; call calibrate() to detect it from the data.
+    """
+
+    def __init__(self, image: IsoImage, db_paths=None, subrel: int = 9,
+                 sector_size: Optional[int] = None):
         self.image = image
+        if db_paths is None:
+            db_paths, detected = self._detect_layout(image)
+        else:
+            detected = CARIN_SECTOR
+        self.sector_size = sector_size or detected
+        self.subrel = subrel
         self.parts = [image.files[p] for p in db_paths]
-        self.sectors = [f.size // CARIN_SECTOR for f in self.parts]
+        self.sectors = [f.size // self.sector_size for f in self.parts]
         self._layout: Optional[dict] = None
         self._db_rel = 0
+
+    @staticmethod
+    def _detect_layout(image: IsoImage):
+        if all(p in image.files for p in DVD_DB_PATHS):
+            return DVD_DB_PATHS, CARIN_SECTOR
+        for path in image.files:
+            if path.lower() == "/" + CD_DB_NAME:
+                return (path,), ISO_SECTOR
+        raise ValueError("no CARINdb found (expected /DB/DB_0 + /DB/DB_1 or /carindb)")
 
     @property
     def layout(self) -> dict:
@@ -151,7 +181,8 @@ class CarinVolume:
         idx, local = divmod(sector, CARIN_WINDOW)
         if idx >= len(self.parts):
             raise ValueError(f"sector {sector} outside volume")
-        return self.image.read(self.parts[idx], local * CARIN_SECTOR, count * CARIN_SECTOR)
+        return self.image.read(self.parts[idx], local * self.sector_size,
+                               count * self.sector_size)
 
     def block(self, sector: int) -> CarinBlock:
         head = self.read_sectors(sector, 1)
@@ -166,7 +197,9 @@ class CarinVolume:
             data = raw[:BLOCK_HDR_SIZE] + zlib.decompress(raw[BLOCK_HDR_SIZE:])
         elif cf & 1:
             try:
-                data = cf1.decode_block(raw, self.layout, self.db_rel)
+                data = cf1.decode_block(raw, self.layout, self.db_rel,
+                                        subrel=self.subrel,
+                                        sector_size=self.sector_size)
             except cf1.Cf1Error:
                 data = None          # tipo di blocco non ancora portato
         else:
@@ -183,7 +216,7 @@ class CarinVolume:
             buf, buf_base = b"", -1
             CHUNK = 1 << 22
             while sector < nsec:
-                off = sector * CARIN_SECTOR
+                off = sector * self.sector_size
                 if buf_base < 0 or off < buf_base or off + BLOCK_HDR_SIZE > buf_base + len(buf):
                     buf = self.image.read(self.parts[idx], off, CHUNK)
                     buf_base = off
@@ -196,6 +229,24 @@ class CarinVolume:
                     continue
                 yield CarinBlock(base + sector, length, btype, cf, us, b"", None)
                 sector += length
+
+    def calibrate(self, sample: int = 48) -> int:
+        """Detect the CF=1 sub-revision from the data and store it in `subrel`.
+
+        Decodes up to `sample` CF=1 type 0x00 blocks spread across the volume
+        under each candidate sub-revision and keeps the one whose blocks pass
+        the section-4 -> section-7 structural check (see cf1.probe).
+        """
+        from .cf1.probe import detect_subrel
+
+        heads = [b for b in self.walk() if b.type == 0x00 and b.comp & 1]
+        if not heads:
+            return self.subrel
+        step = max(1, len(heads) // sample)
+        raws = [self.read_sectors(b.sector, b.length) for b in heads[::step][:sample]]
+        self.subrel = detect_subrel(raws, self.layout, self.db_rel,
+                                    self.sector_size, cf1.decode_block)
+        return self.subrel
 
 
 # --------------------------------------------------------------------------
