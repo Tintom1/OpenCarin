@@ -68,3 +68,9 @@ def test_name_pointer_score_rejects_pointers_into_the_middle_of_text():
 
 def test_name_pointer_score_needs_three_named_records():
     assert name_pointer_score(_named_block([1, 0, 13]), NAME_TABLE) is None
+
+
+def test_0e_s2_offset_width_follows_subrel():
+    from carin.parser.cf1.decoder_0e import s2_offset_bits
+    assert s2_offset_bits(8) == 13
+    assert s2_offset_bits(9) == 15

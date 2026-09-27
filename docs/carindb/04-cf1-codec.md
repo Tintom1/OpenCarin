@@ -294,6 +294,17 @@ text is decoded last, so the name check separates them:
 | CD-ID 21708 (DB-REL 34) | 0.02 | 1.00 | 16 bits (subrel 9) |
 | CD-ID 21734 (DB-REL 34) | 0.00 | 1.00 | 16 bits (subrel 9) |
 
+The type `0x0E` decoder has a second sub-revision dependent width: the S2 `val1`
+field (a SECTION_4 byte offset in the linked `0x00` tile, stored `>> 1`) is
+`getbits(13)` below sub-revision 9 and `getbits(15)` from 9. CC-93 hardcodes 13
+(`moveq #$d`, `pbp+0x4248`). On CD-ID 21708 the `0x00` tiles need offsets up to
+33,364, which 13 bits cannot hold: with 13 bits the `CF=1` `0x0E` blocks lose sync
+at S2 (76% valid tile links, 16% valid house-number pairs over 15 blocks); with 15,
+both are 100% on CD-IDs 21708 and 21734 (40 blocks each), while the CDs stay at
+100% with 13. On these four discs sub-revision and sector unit always change
+together, so the data alone does not say which of the two selects the width; the
+decoder ties it to the sub-revision, like the section 6 field.
+
 The same discs also differ in the sector unit: CD images keep the database in a
 single `/carindb` file and count `BLOCK_ID`, length and `usize` in **2048-byte**
 sectors, not 512. `CarinVolume` detects this from the image layout; decoding a
