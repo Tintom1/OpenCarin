@@ -51,13 +51,13 @@ While the foundation is cracked, building a full compiler from OpenStreetMap req
 
 ### 1. Road Network Parcel Semantics (`BLOCK_TYPE = 0x0E`) 🔴 Critical
 * **74,247 blocks** (CD-ID 21708). From disc data they look like a **street-name directory** rather than the road graph:
-  * `SECTION_0` (8 B, alphabetical) = street name pointer, `FLAGS`, `B`, locality pointer or 0, pointer to `SECTION_1` (stride `T[0x41]`: 6, or 4 on DB-REL 22).
+  * `SECTION_0` (8 B, alphabetical) = street name pointer, `FLAGS`, `B`, locality pointer or 0, pointer to `SECTION_1` (stride `T[0x41]`: 6, or 4 on DB-REL 22). `FLAGS` gives the kind of name (the road's own name, an alternative name, a second-language name, or a word-reordered form for search) and `B` its language.
+  * `SECTION_1` = pointer to `SECTION_2`, record count, and a flag set when the entry has house numbers.
   * `SECTION_2` (24 B) = a `0x00` tile (`BLOCK_ID` and centre), a run of that tile's road segments (`SECTION_4` offset + count), and even/odd house-number ranges. The house numbers match OpenStreetMap addresses: on CD-ID 21734, 98.9% of 1,355 OSM addresses near the linked segments fall in a range of their street, and 85.5% in the range of their nearest segment.
   * Details and checks: [`docs/carindb/03-road-network.md`](docs/carindb/03-road-network.md) §6.3.1.
 * These field meanings come from disc data (structure and cross-checks), not from firmware.
 * **Still needed**:
   * Confirm how the firmware uses these fields by tracing the routing and query engines in the disassembler (e.g. `db_pub+0x1e98` in Mk3 firmware or `pbp` in CC-93).
-  * The meaning of `FLAGS` (`0x00, 0x01, 0x02, 0x10, 0x11`; bit 4 is common on word-reordered name variants), `B`, the `SECTION_1` flag byte and `SECTION_1` bytes +4–5.
   * Where the router gets its topology: no node or neighbour references have been found in the decoded `0x0E` fields.
 * **Crucial Question**: Does the firmware route planner rely on **precomputed graph shortcuts / hierarchical boundaries** between parcels, or does it dynamically traverse the graph at runtime using topology and costs? (See [docs/PROMPT_SEMANTICA_STRADALE.md](docs/PROMPT_SEMANTICA_STRADALE.md) for full context).
 

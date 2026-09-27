@@ -64,6 +64,27 @@ Verified on sample:
   record's **street name**, a NUL-terminated Latin-1 string in the text that follows
   SECTION_2 (it is monotonic because records are alphabetical). See §6.3.1,
   "`0x0E` is the street-name directory".
+* **Name metadata, from disc data (2026-09-28)**: `FLAGS` and `B` describe the *name*, not
+  the road. Checked on CD-ID 21594 (6,873 S0 records in 25 blocks, each compared with the
+  names of the road segments its S2 records link to) and CD-ID 21708 (300 `CF=2` blocks):
+
+  | Field | Value | Meaning | Evidence (CD-ID 21594) |
+  |---|---|---|---|
+  | `FLAGS` bits 0–1 | 0 | the linked segments' own name | 4,707 / 4,707 exact match |
+  | | 1 | an alternative name for the road (e.g. `muckross road` → segment `n71`, `jellicoe court` → `atlantic wharf`) | 368 + 230, all differ from the segment name |
+  | | 2 | the name in a second language (e.g. `heol y groes` → `cross street`, `an baile beag` → `ballybeg`) | 106 + 127, all differ |
+  | `FLAGS` bit 4 | 1 | a word-reordered form of the name, for search (`east rathcahill` → `rathcahill east`) | 1,335 / 1,335 reordered |
+  | `B` | code | the **language** of the name | see below |
+
+  `B` codes seen on CD-ID 21708: 1 Dutch, 2 English, 3 French, 4 German, 5 Italian,
+  6 Spanish, 7 Swedish, 10 Danish, 11 Catalan, 15 Portuguese, 19 Czech, 21 Russian
+  (transliterated), 255 other (Welsh, Irish, Ukrainian, Basque, Galician). On CD-ID 21594,
+  English names carry 2 and Welsh/Irish names 255. In `CF=1` blocks `B` is read as 3 bits;
+  on the discs tested, packed blocks only carry codes 1–6.
+
+  This supersedes the "access category" reading of bits 0–1 and the "functional class"
+  reading of `B` below; the firmware notes that follow found no routing use of `FLAGS`,
+  which is consistent with it being name metadata.
 * `FLAGS` ∈ `{0x00,0x01,0x02,0x10,0x11,0x12}` (3 active bits: lo=bits[1:0] via `getbits(2)`, hi=bit4 via `getbits(1)<<4`).
   Global distribution across 563 CF=1 blocks (218 k records): 0x00=67.1 %, 0x10=26.4 %, 0x01=4.5 %, 0x11=1.3 %, 0x02=0.6 %, 0x12=0.1 %.
   **Hypothesis "bit4 = one-way": FALSIFIED by full firmware static analysis (2026-09-20).**
@@ -129,8 +150,9 @@ base `0x0E` topology.
 - **Section 1** (Edges/Attributes, `T[0x41]` = 6 bytes):
   - `+0 (u16)`: pointer to Section 2. `getbits(bits_needed(S2_count)) * T[0x42] + S2_offset`.
   - `+2 (u8)`: span count. If `getbits(1)`==1 → `getbits(bits_needed(S2_count)) + 2`, else `1`.
-  - `+3 (u8)`: flag. `getbits(1)`.
-  - `+4–5`: zero (not decoded).
+  - `+3 (u8)`: flag. `getbits(1)`. **1 = the entry has house numbers** (at least one of its
+    S2 records has a non-`0x7FFF` range): 2,510 / 2,510, and 0 for all 4,363 others (CD-ID 21594).
+  - `+4–5`: zero (not decoded); 0 in all 6,873 records sampled on CD-ID 21594.
 - **Section 2** (street → map link, `T[0x42]` = 24 bytes; earlier read as geometry):
   unpacked from the bitstream using the anchor table. Algorithm (✅ VERIFIED 2026-09-19, oracle: pbp m68k write trace — `pbp+0x41c0`):
   - `idx_N = getbits(bits_needed(count_N))` → selects 12-byte anchor
