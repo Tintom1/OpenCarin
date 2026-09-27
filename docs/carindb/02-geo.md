@@ -162,3 +162,60 @@ Verified example (sector 6326923, Göteborg bbox):
 
 The same 20-byte layout with absolute coordinates applies to types `0x14`, `0x1C`,
 `0x1D`, `0x1E` (labels of seas, regions, major cities).
+
+### 8.4 Area and Line Categories — Types `0x14`–`0x16`, `0x1C`–`0x1E`, Section 0
+
+The background layer (sea, lakes, forest, built-up areas, rivers, railways) lives
+in the scale-layer block types, not in the street-level `0x00` tiles. Section 0
+of a decoded block is a category list:
+
+```
+section 0, record T[0x3B] (4 bytes on both CD discs checked):
+ +0x00  u8   category code (7 bits used)
+ +0x01  u8   draw flag (0 = polygon, 1 = polyline)
+ +0x02  u16  offset of the category's first record in section 1 or section 2
+count + 1 records; the last is a terminator that supplies the end bound
+```
+
+A category owns the records from its pointer up to the next category's pointer.
+**Decide polygon vs polyline by which section the pointer lands in** (section 1:
+areas, section 2: lines), not by the draw flag: the terminator carries
+`draw = 0` while pointing at the end of section 2. Treating it as an area makes
+the last area category — usually water — compute an out-of-range end and
+disappear, which looks like "the format only stores open sea".
+
+Codes, checked on two CD discs (CD-ID 2952 and CD-ID 21594). Section 0 records decoded by
+`decode_type14_16` are identical to an independent decoder's on 375/375 sampled
+packed blocks.
+
+| code | meaning | evidence |
+|---|---|---|
+| `0x00` | land | background fill under islands and coast |
+| `0x01` | water / sea | renders the coastline, sea lochs and estuaries of both discs' coverage; over tiles wholly at sea vs wholly inland (CD-ID 21594): 3.51 deg² sea, 0.00 deg² land |
+| `0x03` | forest / green space | national parks, large forests |
+| `0x05` | built-up area | matches urban geography; land-only |
+| `0x06` | industrial | sparse, next to built-up areas; land-only |
+| `0x08` | island | Hebrides, Orkney, Shetland |
+| `0x61` | canal | line |
+| `0x62` | river | line, dendritic drainage pattern |
+| `0x65` | major river | line; road-proximity 1.05× a random-shift null (not a road) |
+| `0x66` | railway | line; road-proximity 1.29× null |
+| `0x67` | border | line |
+| `0x68`–`0x6A` | coarse-scale road classes (strongly indicated) | lines within 40 m of decoded `0x00` roads at 1.69×, 2.05×, 1.98× a random-shift null; national renders form a three-tier hierarchy |
+
+`0x02` (sea/ocean), `0x04` (national park), `0x07` (airport), `0x09` (amusement),
+`0x0A` (golf), `0x0F` (sports) follow the QGIS_VDO naming and were not
+independently verified here.
+
+**Scale layers are alternatives, not layers to composite.** `0x14`, `0x15`,
+`0x16`, `0x1C`, `0x1D`, `0x1E` are the same ground generalised for different
+zooms. Render one layer for a view (the finest that covers it), as the unit
+does. Compositing lets a coarse layer's generalised polygon show wherever the
+fine layer draws nothing: with all layers painted coarsest-first, 364 water
+polygons on CD-ID 21594 cover street-level land tiles, against 26 (all
+ordinary coastal tiles) when only `0x16` is drawn. Sorting by tile span is not a
+substitute for layer order — a coarse layer's tile can be smaller than a fine
+layer's.
+
+Some tiles store the same polygon two or three times, in distinct consecutive
+vertex ranges. This is in the data, not a decode error.
