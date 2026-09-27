@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import pytest
 
 from carin.parser.iso import CarinVolume, IsoFile
-from carin.parser.cf1.probe import shape_pointer_score
+from carin.parser.cf1.probe import name_pointer_score, shape_pointer_score
 
 
 def _image(*paths):
@@ -44,3 +44,27 @@ def test_shape_pointer_score_accepts_consistent_pointers():
 
 def test_shape_pointer_score_rejects_misaligned_pointers():
     assert shape_pointer_score(_type00_block([256, 259, 5000, 12]), TABLE) < 0.5
+
+
+def _named_block(pointers, text=b"\0high street\0mill lane\0station road\0", s2=40, rec2=10, t=400):
+    data = bytearray(512)
+    struct.pack_into(">HH", data, 8 + 2 * 4, s2, len(pointers))
+    data[t:t + len(text)] = text
+    for i, p in enumerate(pointers):
+        struct.pack_into(">H", data, s2 + rec2 * i, p and t + p)
+    return bytes(data)
+
+
+NAME_TABLE = {0x05: 8, 0x40: 10}
+
+
+def test_name_pointer_score_accepts_real_strings():
+    assert name_pointer_score(_named_block([1, 13, 0, 23]), NAME_TABLE) == 1.0
+
+
+def test_name_pointer_score_rejects_pointers_into_the_middle_of_text():
+    assert name_pointer_score(_named_block([3, 15, 26]), NAME_TABLE) == 0.0
+
+
+def test_name_pointer_score_needs_three_named_records():
+    assert name_pointer_score(_named_block([1, 0, 13]), NAME_TABLE) is None

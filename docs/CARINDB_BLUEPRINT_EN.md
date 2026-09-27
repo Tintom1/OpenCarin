@@ -1424,12 +1424,26 @@ blocks.
 The sub-revision is a property of the individual disc, not of the DB-REL. Another
 disc whose superblock DB-REL (`+0x1A`, also shown in `BIBLIOGR`) is 34 (CD-ID
 21594), and one whose DB-REL is 22 (CD-ID 2952), both need
-**14 bits**: with 16, only 108/200 and 117/200 sampled blocks pass the structural
-check; with 14, all of them do (1,200/1,200 and 600/600, with the `dec_text`
-guard applied). `cf1.probe.detect_subrel` / `CarinVolume.calibrate()`
+**14 bits**. Without the `dec_text` guard, only 108/200 and 117/200 sampled blocks
+passed the structural check with 16 bits; with 14, all of them do (1,200/1,200 and
+600/600, with the guard applied). `cf1.probe.detect_subrel` / `CarinVolume.calibrate()`
 recover it from the data by decoding a sample of type `0x00` blocks under both
-widths and keeping the one whose section 4 → section 7 shape pointers are
-structurally consistent.
+widths and keeping the one that scores best on two checks: the section 4 →
+section 7 shape pointers must be structurally consistent, and the section 2 name
+pointers must land on real strings in the decoded text.
+
+The shape-pointer check on its own cannot tell the widths apart once the
+`dec_text` guard is in place: section 4 is decoded before the section 6 field,
+so it scores 1.0 under both widths on all four discs tested, and the tie used to
+resolve to 14 bits, which is wrong for CD-ID 21708. The name check separates
+them because the text is decoded last:
+
+| Disc | names hit, 14 bits | names hit, 16 bits | detected |
+|---|---|---|---|
+| CD-ID 2952 (DB-REL 22) | 1.00 | 0.04 | 14 bits (subrel 8) |
+| CD-ID 21594 (DB-REL 34) | 1.00 | 0.19 | 14 bits (subrel 8) |
+| CD-ID 21708 (DB-REL 34) | 0.02 | 1.00 | 16 bits (subrel 9) |
+| CD-ID 21734 (DB-REL 34) | 0.00 | 1.00 | 16 bits (subrel 9) |
 
 CD images also use a different sector unit: the database is a single `/carindb`
 file and `BLOCK_ID`, length and `usize` count **2048-byte** sectors rather than

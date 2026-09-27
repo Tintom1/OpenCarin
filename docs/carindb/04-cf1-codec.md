@@ -273,13 +273,26 @@ decoding from failure in 80% of blocks.**
 The sub-revision is **per disc, not per DB-REL**. Another disc whose superblock
 DB-REL (`+0x1A`, also shown in `BIBLIOGR`) is 34 (CD-ID 21594), and one whose
 DB-REL is 22 (CD-ID 2952), both need **14 bits** (subrel < 9):
-with 16, only 108/200 and 117/200 sampled blocks pass the structural check
-described next; with 14, all of them do (1,200/1,200 and 600/600, with the
-`dec_text` guard applied). Since the value is not read from the block,
+without the `dec_text` guard, only 108/200 and 117/200 sampled blocks passed the
+shape-pointer check with 16 bits; with 14, all of them do (1,200/1,200 and 600/600,
+with the guard applied). Since the value is not read from the block,
 `cf1.probe.detect_subrel` (and `CarinVolume.calibrate()`) picks it from the data:
-it decodes a sample of type `0x00` blocks both ways and keeps the one whose
-section 4 → section 7 shape pointers are monotone, stay inside section 7 and step
-in whole records.
+it decodes a sample of type `0x00` blocks both ways and keeps the one that scores
+best on two checks: section 4 → section 7 shape pointers that are monotone, stay
+inside section 7 and step in whole records; and section 2 name pointers that land
+on real strings in the decoded text.
+
+With the guard in place the shape-pointer check alone scores 1.0 under both
+widths on all four discs tested, because section 4 is decoded before the section 6
+field, and the tie used to resolve to 14 bits, which is wrong for CD-ID 21708. The
+text is decoded last, so the name check separates them:
+
+| Disc | names hit, 14 bits | names hit, 16 bits | detected |
+|---|---|---|---|
+| CD-ID 2952 (DB-REL 22) | 1.00 | 0.04 | 14 bits (subrel 8) |
+| CD-ID 21594 (DB-REL 34) | 1.00 | 0.19 | 14 bits (subrel 8) |
+| CD-ID 21708 (DB-REL 34) | 0.02 | 1.00 | 16 bits (subrel 9) |
+| CD-ID 21734 (DB-REL 34) | 0.00 | 1.00 | 16 bits (subrel 9) |
 
 The same discs also differ in the sector unit: CD images keep the database in a
 single `/carindb` file and count `BLOCK_ID`, length and `usize` in **2048-byte**
