@@ -265,10 +265,26 @@ rec[T[0x10]]     = getbits(32)
 rec[T[0x10] + 4] = getbits(14 if subrel < 9 else 16)
 ```
 
-CC-93 hardcoded 14 (its subrel was always < 9). On DB-REL 34 discs the correct
-value is **16**: with 14 the stream desyncs halfway through section 6 and the rest
-of the block becomes noise. **This single difference separated correct decoding
-from failure in 80% of blocks.**
+CC-93 hardcoded 14 (its subrel was always < 9). On `NAV_DB_21708` (DB-REL 34) the
+correct value is **16**: with 14 the stream desyncs halfway through section 6 and
+the rest of the block becomes noise. **This single difference separated correct
+decoding from failure in 80% of blocks.**
+
+The sub-revision is **per disc, not per DB-REL**. Another disc whose superblock
+DB-REL (`+0x1A`, also shown in `BIBLIOGR`) is 34 (CD-ID 21594), and one whose
+DB-REL is 22 (CD-ID 2952), both need **14 bits** (subrel < 9):
+with 16, only 108/200 and 117/200 sampled blocks pass the structural check
+described next; with 14, all of them do (1,200/1,200 and 600/600, with the
+`dec_text` guard applied). Since the value is not read from the block,
+`cf1.probe.detect_subrel` (and `CarinVolume.calibrate()`) picks it from the data:
+it decodes a sample of type `0x00` blocks both ways and keeps the one whose
+section 4 → section 7 shape pointers are monotone, stay inside section 7 and step
+in whole records.
+
+The same discs also differ in the sector unit: CD images keep the database in a
+single `/carindb` file and count `BLOCK_ID`, length and `usize` in **2048-byte**
+sectors, not 512. `CarinVolume` detects this from the image layout; decoding a
+CD block with `sector_size=512` fails outright (output buffer too small).
 
 ## 9.11.8 Results
 

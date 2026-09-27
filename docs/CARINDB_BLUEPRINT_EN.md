@@ -1415,10 +1415,25 @@ rec[T[0x10]]     = getbits(32)
 rec[T[0x10] + 4] = getbits(14 if subrel < 9 else 16)
 ```
 
-CC-93 hardcoded 14 because its sub-revision was always < 9. On DB-REL 34 discs
-the correct value is **16**: with 14 the stream desynchronizes halfway through
-section 6 and the remainder of the block turns to noise. This was the single
-difference separating correct decoding from failure in 80% of blocks.
+CC-93 hardcoded 14 because its sub-revision was always < 9. On `NAV_DB_21708`
+(DB-REL 34) the correct value is **16**: with 14 the stream desynchronizes
+halfway through section 6 and the remainder of the block turns to noise. This
+was the single difference separating correct decoding from failure in 80% of
+blocks.
+
+The sub-revision is a property of the individual disc, not of the DB-REL. Another
+disc whose superblock DB-REL (`+0x1A`, also shown in `BIBLIOGR`) is 34 (CD-ID
+21594), and one whose DB-REL is 22 (CD-ID 2952), both need
+**14 bits**: with 16, only 108/200 and 117/200 sampled blocks pass the structural
+check; with 14, all of them do (1,200/1,200 and 600/600, with the `dec_text`
+guard applied). `cf1.probe.detect_subrel` / `CarinVolume.calibrate()`
+recover it from the data by decoding a sample of type `0x00` blocks under both
+widths and keeping the one whose section 4 → section 7 shape pointers are
+structurally consistent.
+
+CD images also use a different sector unit: the database is a single `/carindb`
+file and `BLOCK_ID`, length and `usize` count **2048-byte** sectors rather than
+512. `CarinVolume` detects the layout from the image.
 
 #### 9.11.8 Results
 
