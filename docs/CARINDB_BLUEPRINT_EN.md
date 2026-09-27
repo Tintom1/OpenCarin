@@ -603,7 +603,7 @@ PARCEL_S0_FMT = ">HBBHH"        # 8 bytes
   - `has_deltas = getbits(1)`
   - if `has_deltas`: for each of 4 fields: `is_16=getbits(1)`; `val=getbits(16 if is_16 else M_hi)`
   - else: 4 × sentinel `0x7FFF`
-  - `val1 = getbits(13) << 1`; `val2 = getbits(M_lo)`
+  - `val1 = getbits(13 if subrel < 9 else 15) << 1`; `val2 = getbits(M_lo)`
   - **Output byte layout**:
 
     | offset | size | content |
@@ -615,7 +615,7 @@ PARCEL_S0_FMT = ">HBBHH"        # 8 bytes
     | `+12`  | u16  | `raw_delta[2]` |
     | `+14`  | u16  | `raw_delta[3]` |
     | `+16`  | i32  | `anchor_f2` — anchor bytes 8-11 (raw copy) |
-    | `+20`  | u16  | `val1 = getbits(13) << 1` |
+    | `+20`  | u16  | `val1 = getbits(13 or 15) << 1` (15 from sub-revision 9) |
     | `+22`  | u16  | `val2 = getbits(M_lo)` |
 
   - **Field meaning** (2026-09-27, see "`0x0E` is the street-name directory" below):
@@ -639,7 +639,7 @@ PARCEL_S0_FMT = ">HBBHH"        # 8 bytes
 
 ### 6.3.2 Type `0x0E` Field Meaning from Disc Data
 
-Checked on CD-IDs 2952, 21594, 21708 and 21734 (`CF=0`, `CF=2`, and `CF=1` on the CDs):
+Checked on CD-IDs 2952, 21594, 21708 and 21734 (`CF=0`, `CF=1` and `CF=2`; `CF=1` on the DVDs with the 15-bit `val1`, see below):
 
 | Check | Result |
 |---|---|
@@ -661,11 +661,11 @@ topology from is **not** settled by this: the only road topology found so far is
 `0x00` (SECTION_4 end nodes, SECTION_6 boundary nodes), which contradicts the firmware
 reading above that the router never requests `0x00`.
 
-**Known decoder issue**: on CD-ID 21708 the `CF=1` `0x0E` blocks (563 of 74,247) decode
-with S2 out of sync: 78% valid tile links, 15% valid house-number pairs over 40 blocks,
-regardless of `subrel`. The same decoder is 100% on the CDs' `CF=1` blocks (40 blocks
-each), and `CF=2` blocks are unaffected. `decode_s2_coords` should not be used as
-geometry.
+**`val1` width**: `val1` is `getbits(13)` below sub-revision 9 and `getbits(15)` from 9
+(see `04-cf1-codec.md` §9.11.7). Read as 13 bits, the `CF=1` `0x0E` blocks of CD-ID 21708
+lose sync at S2 (78% valid tile links, 15% valid house-number pairs); with 15 bits they
+check out 100% on CD-IDs 21708 and 21734, and the CDs stay at 100% with 13.
+`decode_s2_coords` should not be used as geometry.
 
 ### 6.4 Type `0x04` (80,825 blocks) — 160-Entry Table
 

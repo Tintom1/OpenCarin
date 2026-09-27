@@ -54,7 +54,7 @@ While the foundation is cracked, building a full compiler from OpenStreetMap req
   * `SECTION_0` (8 B, alphabetical) = street name pointer, `FLAGS`, `B`, locality pointer or 0, pointer to `SECTION_1` (stride `T[0x41]`: 6, or 4 on DB-REL 22).
   * `SECTION_2` (24 B) = a `0x00` tile (`BLOCK_ID` and centre), a run of that tile's road segments (`SECTION_4` offset + count), and even/odd house-number ranges.
   * Details and checks: [`docs/carindb/03-road-network.md`](docs/carindb/03-road-network.md) §6.3.1.
-* **Still needed**: the meaning of `FLAGS` (`0x00, 0x01, 0x02, 0x10, 0x11`; bit 4 is common on word-reordered name variants) and `B`; a fix for the `CF=1` S2 decode on CD-ID 21708; and where the router actually gets its topology, since `0x0E` holds none.
+* **Still needed**: the meaning of `FLAGS` (`0x00, 0x01, 0x02, 0x10, 0x11`; bit 4 is common on word-reordered name variants) and `B`; and where the router actually gets its topology, since `0x0E` holds none.
 * **Crucial Question**: Does the firmware route planner rely on **precomputed graph shortcuts / hierarchical boundaries** between parcels, or does it dynamically traverse the graph at runtime using topology and costs? (See [docs/PROMPT_SEMANTICA_STRADALE.md](docs/PROMPT_SEMANTICA_STRADALE.md) for full context).
 
 ### 2. Georeferencing Non-BBox Parcels (`0x0C`, `0x0E`, `0x10`) 🔴 Critical
