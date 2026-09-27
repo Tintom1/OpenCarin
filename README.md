@@ -11,7 +11,7 @@ These navigation databases were widely used in iconic late 1990s and 2000s autom
 * **BMW Navigation Systems**: MK3 (CD, MIPS32) and MK4 (DVD, Hitachi SH-4) across BMW E46, E39, E38, X5 E53, Z4 E85
 * **Renault / Nissan**: Carminat Navigation Informée 1 (CNI1)
 * **VDO Dayton**: PC5000, PC5200, MS5000 series
-* Systems across Opel/Vauxhall, Rover, Land Rover, and others
+* Systems across Opel/Vauxhall, Rover, Land Rover, Volkswagen/Audi and others
 
 Official map updates ceased years ago (mostly frozen around 2015–2019). **The mission of this project is to reverse-engineer the CARiN binary format and build a compiler pipeline that converts modern OpenStreetMap (OSM) data into functional, bootable DVD/CD navigation discs for these classic cars.**
 
