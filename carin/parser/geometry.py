@@ -9,8 +9,9 @@ A type 0x00 block (after CF=1 decoding, or as-is when CF=0) carries:
            to the next record's pointer (or the end of section 7)
     +0x10  display class byte
     +T[0x09]  pointer -> section 2 record (name reference)
-- section 2: record T[0x40]; its first word is an in-block byte offset of a
-  NUL-terminated road name.
+- section 2: record T[0x40]. Its first word is an in-block byte offset of a
+  NUL-terminated road name (0 = unnamed), its second word the same for the
+  locality the road is in (0 = none), e.g. "brockley road" / "se4".
 - sections 5 and 6: nodes, (u16 x, u16 y) first. Section 6 nodes sit on the
   tile edge and are what joins roads across tiles; both are in this tile's
   own frame.
@@ -128,16 +129,7 @@ def tile_frame(data: bytes, table: dict) -> Optional[TileFrame]:
     return TileFrame(f1 - width, f0, width, height)
 
 
-def _name(data: bytes, table: dict, rec_off: int, sec2: Tuple[int, int]) -> Optional[str]:
-    tail = table.get(T_TAIL_S4)
-    rec2 = table.get(T_REC_S0)
-    if tail is None or not rec2:
-        return None
-    s2, n2 = sec2
-    ref = struct.unpack_from(">H", data, rec_off + tail)[0]
-    if not (s2 <= ref < s2 + rec2 * n2 and (ref - s2) % rec2 == 0):
-        return None
-    ptr = struct.unpack_from(">H", data, ref)[0]
+def _string(data: bytes, ptr: int) -> Optional[str]:
     if not 0 < ptr < len(data):
         return None
     end = data.find(b"\x00", ptr, ptr + 64)
@@ -147,10 +139,26 @@ def _name(data: bytes, table: dict, rec_off: int, sec2: Tuple[int, int]) -> Opti
     return text if any(c.isalpha() for c in text) else None
 
 
+def _names(data: bytes, table: dict, rec_off: int,
+           sec2: Tuple[int, int]) -> Tuple[Optional[str], Optional[str]]:
+    """(road name, locality) of a section 4 record, via its section 2 record."""
+    tail = table.get(T_TAIL_S4)
+    rec2 = table.get(T_REC_S0)
+    if tail is None or not rec2:
+        return None, None
+    s2, n2 = sec2
+    ref = struct.unpack_from(">H", data, rec_off + tail)[0]
+    if not (s2 <= ref < s2 + rec2 * n2 and (ref - s2) % rec2 == 0) or rec2 < 4:
+        return None, None
+    name, locality = struct.unpack_from(">HH", data, ref)
+    return _string(data, name), _string(data, locality)
+
+
 def road_segments(data: bytes, table: dict) -> List[dict]:
     """Road segments of a decoded type 0x00 block, in WGS84.
 
-    Returns dicts: {"index", "name", "display_class", "coords": [(lon, lat), ...]}.
+    Returns dicts: {"index", "name", "locality", "display_class",
+    "coords": [(lon, lat), ...]}.
     Segments whose points fall outside the tile are dropped (misparse guard).
     """
     frame = tile_frame(data, table)
@@ -190,9 +198,11 @@ def road_segments(data: bytes, table: dict) -> List[dict]:
             pts.append(nodes[b])
         if len(pts) < 2 or any(not (0 <= u <= lim_u and 0 <= v <= lim_v) for u, v in pts):
             continue
+        name, locality = _names(data, table, base, secs[2])
         out.append({
             "index": i,
-            "name": _name(data, table, base, secs[2]),
+            "name": name,
+            "locality": locality,
             "display_class": data[base + 0x10],
             "coords": [frame.to_wgs84(u, v) for u, v in pts],
         })

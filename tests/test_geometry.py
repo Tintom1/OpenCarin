@@ -9,7 +9,7 @@ TABLE = {0x05: 8, 0x06: 16, 0x08: 30, 0x09: 24, 0x0C: 6, 0x10: 8, 0x40: 6}
 UNIT = 64
 
 
-def _block(bbox, shape=((10, 20), (30, 40)), nodes=((0, 0), (100, 100))):
+def _block(bbox, shape=((10, 20), (30, 40)), nodes=((0, 0), (100, 100)), locality=True):
     """Minimal decoded type 0x00 block: one named segment, two nodes."""
     data = bytearray(1024)
     sec = {2: (200, 1), 4: (240, 1), 5: (300, len(nodes)), 7: (340, len(shape))}
@@ -21,6 +21,9 @@ def _block(bbox, shape=((10, 20), (30, 40)), nodes=((0, 0), (100, 100))):
     struct.pack_into(">H", data, 240 + 24, 200)             # -> section 2 record
     struct.pack_into(">H", data, 200, 400)                  # -> name text
     data[400:410] = b"test road\x00"
+    if locality:
+        struct.pack_into(">H", data, 202, 410)              # -> locality text
+        data[410:419] = b"testtown\x00"
     for i, (x, y) in enumerate(nodes):
         struct.pack_into(">HH", data, 300 + 8 * i, x, y)
     for i, (x, y) in enumerate(shape):
@@ -36,6 +39,7 @@ def test_full_box_frame_and_segment():
     assert (frame.x0, frame.y0, frame.width, frame.height) == (x0, y0, side, side)
     [seg] = road_segments(data, TABLE)
     assert seg["name"] == "test road" and seg["display_class"] == 3
+    assert seg["locality"] == "testtown"
     expected = [(0, 0), (10, 20), (30, 40), (100, 100)]
     assert seg["coords"] == [to_wgs84(x0 + u * UNIT, y0 + v * UNIT) for u, v in expected]
 
@@ -62,3 +66,10 @@ def test_points_outside_tile_are_dropped():
     x0, y0, side = 150_000_000, 280_000_000, 100 * UNIT
     data = _block((x0, y0, x0 + side, y0 + side), shape=((10, 20), (500, 40)))
     assert road_segments(data, TABLE) == []
+
+
+def test_segment_without_locality():
+    x0, y0 = 150_000_000, 280_000_000
+    side = 100 * UNIT
+    [seg] = road_segments(_block((x0, y0, x0 + side, y0 + side), locality=False), TABLE)
+    assert seg["name"] == "test road" and seg["locality"] is None
