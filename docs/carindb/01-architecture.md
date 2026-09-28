@@ -637,6 +637,16 @@ city's `0x0F` trie on both CDs (49,310 and 95,543 cities; `local/tools/triebuild
    `ä`, `ö` and `ü` count as letters in their own right. Any other accented letter also brings
    its plain letter, which comes first (`á` alone gives `a`, `á`).
 
+A made-up city also works. Renaming a city in place (keeping its sort position, so the country's
+`0x0D` leaf still covers it), giving its street records new names, re-encoding the packed `0x0E`
+block with `encode_type0E`, and writing the city's `0x0F` root from the rule alone gives a city
+that can be selected, with the new street list, and a street that can be chosen as a destination.
+The unit's destination line then shows the **old** street and city names ("street, locality"):
+it doesn't take them from the list that was searched, but from another copy of the road's name.
+That could be the post town's `0x0E` list (where `C` gives the locality) or the `0x00` tile text,
+and neither was changed. The `0x0F` rule does not rebuild the `0x0D` city tries: these split some
+groups that sit in one block (open).
+
 ### 4.5 `CARINET` — Event Text Catalog (independent block space)
 
 ```
