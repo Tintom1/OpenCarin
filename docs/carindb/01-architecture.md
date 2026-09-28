@@ -616,6 +616,15 @@ separate tries. On CD-ID 2952 a street on the border of two towns sits in a pack
 under one town and in a plain one under the neighbouring larger town. Editing one copy leaves
 the other list unchanged.
 
+**Renaming a street (tested on a CNI1, CD-ID 2952).** A street's name is stored in every city
+list that carries it (plain or packed `0x0E`), in its word-reordered alias (flag `0x1000`, e.g.
+`lane …`) and in the text of its `0x00` tile. Renaming all of them, keeping the new name in the
+same sort position (so no trie range changes), works on the unit: the new name is listed and
+selectable. An earlier rename of one copy only, which also broke that list's sort order, showed
+the old name in the other city's list and crashed the unit when it was selected. Packed blocks can
+be edited without re-encoding by swapping letters whose text codes have the same total bit length
+(`local/tools/textsplice.py`).
+
 ### 4.5 `CARINET` — Event Text Catalog (independent block space)
 
 ```
