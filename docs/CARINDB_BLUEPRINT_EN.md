@@ -1415,10 +1415,50 @@ rec[T[0x10]]     = getbits(32)
 rec[T[0x10] + 4] = getbits(14 if subrel < 9 else 16)
 ```
 
-CC-93 hardcoded 14 because its sub-revision was always < 9. On DB-REL 34 discs
-the correct value is **16**: with 14 the stream desynchronizes halfway through
-section 6 and the remainder of the block turns to noise. This was the single
-difference separating correct decoding from failure in 80% of blocks.
+CC-93 hardcoded 14 because its sub-revision was always < 9. On `NAV_DB_21708`
+(DB-REL 34) the correct value is **16**: with 14 the stream desynchronizes
+halfway through section 6 and the remainder of the block turns to noise. This
+was the single difference separating correct decoding from failure in 80% of
+blocks.
+
+The sub-revision is a property of the individual disc, not of the DB-REL. Another
+disc whose superblock DB-REL (`+0x1A`, also shown in `BIBLIOGR`) is 34 (CD-ID
+21594), and one whose DB-REL is 22 (CD-ID 2952), both need
+**14 bits**. Without the `dec_text` guard, only 108/200 and 117/200 sampled blocks
+passed the structural check with 16 bits; with 14, all of them do (1,200/1,200 and
+600/600, with the guard applied). `cf1.probe.detect_subrel` / `CarinVolume.calibrate()`
+recover it from the data by decoding a sample of type `0x00` blocks under both
+widths and keeping the one that scores best on two checks: the section 4 →
+section 7 shape pointers must be structurally consistent, and the section 2 name
+pointers must land on real strings in the decoded text.
+
+The shape-pointer check on its own cannot tell the widths apart once the
+`dec_text` guard is in place: section 4 is decoded before the section 6 field,
+so it scores 1.0 under both widths on all four discs tested, and the tie used to
+resolve to 14 bits, which is wrong for CD-ID 21708. The name check separates
+them because the text is decoded last:
+
+| Disc | names hit, 14 bits | names hit, 16 bits | detected |
+|---|---|---|---|
+| CD-ID 2952 (DB-REL 22) | 1.00 | 0.04 | 14 bits (subrel 8) |
+| CD-ID 21594 (DB-REL 34) | 1.00 | 0.19 | 14 bits (subrel 8) |
+| CD-ID 21708 (DB-REL 34) | 0.02 | 1.00 | 16 bits (subrel 9) |
+| CD-ID 21734 (DB-REL 34) | 0.00 | 1.00 | 16 bits (subrel 9) |
+
+The type `0x0E` decoder has a second sub-revision dependent width: the S2 `val1`
+field (a SECTION_4 byte offset in the linked `0x00` tile, stored `>> 1`) is
+`getbits(13)` below sub-revision 9 and `getbits(15)` from 9. CC-93 hardcodes 13
+(`moveq #$d`, `pbp+0x4248`). On CD-ID 21708 the `0x00` tiles need offsets up to
+33,364, which 13 bits cannot hold: with 13 bits the `CF=1` `0x0E` blocks lose sync
+at S2 (76% valid tile links, 16% valid house-number pairs over 15 blocks); with 15,
+both are 100% on CD-IDs 21708 and 21734 (40 blocks each), while the CDs stay at
+100% with 13. On these four discs sub-revision and sector unit always change
+together, so the data alone does not say which of the two selects the width; the
+decoder ties it to the sub-revision, like the section 6 field.
+
+CD images also use a different sector unit: the database is a single `/carindb`
+file and `BLOCK_ID`, length and `usize` count **2048-byte** sectors rather than
+512. `CarinVolume` detects the layout from the image.
 
 #### 9.11.8 Results
 

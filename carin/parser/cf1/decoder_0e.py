@@ -3,6 +3,20 @@ from .core import _walk
 from .constants import *
 import struct
 
+
+def s2_offset_bits(subrel: int) -> int:
+    """Width of the S2 `val1` field (SECTION_4 byte offset >> 1).
+
+    13 bits on sub-revision < 9 (CC-93 hardcodes `moveq #$d`, pbp+0x4248;
+    CD-IDs 2952 and 21594), 15 bits from sub-revision 9 (CD-IDs 21708 and
+    21734, whose `0x00` tiles need offsets up to 33,364). Same +2-bit step as
+    the section 6 field of type 0x00 (`db_pub+0x4604`). On the discs tested,
+    sub-revision and sector unit change together, so the data alone cannot
+    tell which of the two selects the width.
+    """
+    return 15 if subrel >= 9 else 13
+
+
 def _dec_0e_s0(ctx: Cf1Context, e1: Entry, e2: Entry) -> None:
     """pbp+0x40b0 — sezione 0 del tipo 0x0E (nodi/segmenti).
 
@@ -61,7 +75,7 @@ def _dec_0e_s2(ctx: Cf1Context, count_N: int, raw_12: bytes,
           per 4 campi: is_16=getbits(1); val=getbits(16 if is_16 else M_hi)
         else:
           4 x 0x7FFF  sentinella
-        val1 = getbits(13) << 1
+        val1 = getbits(13 if subrel < 9 else 15) << 1
         val2 = getbits(M_lo)
 
     Output per record 24 byte (✅ VERIFIED 2026-09-19, oracle: pbp m68k write trace):
@@ -72,7 +86,7 @@ def _dec_0e_s2(ctx: Cf1Context, count_N: int, raw_12: bytes,
       +12  u16 raw_delta[2]
       +14  u16 raw_delta[3]
       +16  i32 anchor_f2   (anchor[idx_N] bytes 8-11, raw copy — memmove pbp+0x41ee)
-      +20  u16 val1 = getbits(13) << 1
+      +20  u16 val1 = getbits(s2_offset_bits(subrel)) << 1   (13 or 15 bits)
       +22  u16 val2 = getbits(M_lo)
     """
     e2 = ctx.entry(2)
@@ -99,7 +113,7 @@ def _dec_0e_s2(ctx: Cf1Context, count_N: int, raw_12: bytes,
 
         struct.pack_into(">HHHH", ctx.dst, base + 8, *raw_d)
 
-        val1 = ctx.g(13) << 1
+        val1 = ctx.g(s2_offset_bits(ctx.subrel)) << 1
         val2 = ctx.g(M_lo)
         struct.pack_into(">HH", ctx.dst, base + 20, val1 & 0xFFFF, val2 & 0xFFFF)
 
@@ -160,7 +174,8 @@ def decode_type0E(ctx: Cf1Context) -> None:
     _dec_0e_s2(ctx, count_N, raw_12, M_hi, M_lo)
 
 
-def encode_type0E(decoded: bytes, table: dict, dbrel: int) -> bytes:
+def encode_type0E(decoded: bytes, table: dict, dbrel: int, subrel: int = 9,
+                  sector_size: int = SECTOR) -> bytes:
     """Re-encode a decoded 0x0E block to CF=1 raw bytes.
 
     Round-trip guarantee: decode_block(encode_type0E(decoded, table, dbrel),
@@ -173,7 +188,7 @@ def encode_type0E(decoded: bytes, table: dict, dbrel: int) -> bytes:
     base_d  = table[T_DESC_BASE]        # offset of section descriptor in decoded
 
     total   = len(decoded)
-    usize   = total // SECTOR
+    usize   = total // sector_size
     ptrbits = bits_needed(total)
 
     e0_off, e0_cnt = struct.unpack_from(">HH", decoded, base_d + 0)
@@ -286,7 +301,7 @@ def encode_type0E(decoded: bytes, table: dict, dbrel: int) -> bytes:
                 bw.put(1, is_16)
                 bw.put(16 if is_16 else M_hi, d)
 
-        bw.put(13, val1 >> 1)
+        bw.put(s2_offset_bits(subrel), val1 >> 1)
         bw.put(M_lo, val2)
 
     # ── assemble raw block ────────────────────────────────────────────────────
@@ -299,14 +314,14 @@ def encode_type0E(decoded: bytes, table: dict, dbrel: int) -> bytes:
 
     payload = bytes(prolog) + pre_hdr + bitstream
 
-    rem = len(payload) % SECTOR
+    rem = len(payload) % sector_size
     if rem:
-        payload += b"\x00" * (SECTOR - rem)
+        payload += b"\x00" * (sector_size - rem)
 
     # fix block_id: preserve sector, update length-in-sectors
     old_bid = struct.unpack_from(">I", payload, 0)[0]
     sector  = old_bid >> 8
-    n_secs  = len(payload) // SECTOR
+    n_secs  = len(payload) // sector_size
     return struct.pack(">I", (sector << 8) | (n_secs & 0xFF)) + payload[4:]
 
 
