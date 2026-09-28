@@ -1,207 +1,217 @@
+"""CF=1 decoder for the scale-layer blocks 0x14, 0x15, 0x16, 0x1C, 0x1D, 0x1E.
+
+Transcribed from the RoadRunner firmware that reads the DVDs: module `db_pub`
+of `/V_2/RR/0101/BMWC01S/app_sw/bsw2` (offsets are inside the module). The
+CF=1 dispatcher `sub_002a48` sends all six types to `sub_004b88`
+(`scripts/firmware/rr_cf1_dispatch.py`), which calls the section decoder
+`sub_004228(dst, entry, recsize, kind, pass)` once per section and pass.
+
+The earlier port of CC-93 `pbp+0x46aa` stopped after the first pass and read
+one record from sections whose count is 0; see docs/carindb/04-cf1-codec.md.
+"""
 from .core import *
-from .core import _walk
 from .constants import *
 from .decoder_00 import dec_text
 import struct
 
-def _s3_rec_size(ctx: Cf1Context) -> int:
-    """Dimensione record sezione 3: 8 (kind=0x0a) o 4 (kind=0x09).
-
-    Fonte: m68k pbp+0x447c-0x4496 — eseguito all'ingresso di pbp+0x441a per
-    ogni sezione.  Il test legge ctx[T[0x05] + T[0x3f] + 0x10] dal buffer
-    già decodificato (prolog copiato).
-    """
-    off = ctx.T(T_DESC_BASE) + ctx.T(T_S3_DISP_141516) + 0x10
-    if off + 2 <= len(ctx.dst):
-        return 4 if struct.unpack_from(">H", ctx.dst, off)[0] != 0 else 8
-    return 8
+# sub_004228 `kind` argument: one per section layout
+KIND_S0, KIND_S1, KIND_S2 = 0x80, 0x7F, 0x81
+KIND_S3_ABS, KIND_S3_DELTA = 0xAE, 0xAC
+KIND_E4, KIND_E5 = 0x17, 0x10
+# sub_004228 `pass` argument, compared against DB-REL in sub_004b88
+PASS_BASE, PASS_20, PASS_23 = 0x0E, 0x14, 0x17
 
 
-def _delta_s3(ctx: Cf1Context, prev: int, dw: int) -> int:
-    """Delta a 3-vie per kind=0x09 (pbp+0x44da-0x4554, raw_byte[2] = dw).
+class _State:
+    """Values sub_004b88 keeps in the global data area for sub_004228."""
 
-    Codice bitstream:
-      0  → prev + getbits(dw)
-      10 → prev - getbits(dw)
-      11 → getbits(16) (assoluto)
-    """
-    if ctx.g(1):
-        if ctx.g(1):
-            return ctx.g(16)
-        return (prev - ctx.g(dw)) & 0xFFFF
-    return (prev + ctx.g(dw)) & 0xFFFF
+    def __init__(self, raw4: bytes, pb_s3: int, s3_rec: int):
+        self.raw4 = raw4          # gp-0x6c04..-0x6c01, copied raw before the bitstream
+        self.pb_s3 = pb_s3        # gp-0x6c08, bits_needed(e3.count + 1)
+        self.s3_rec = s3_rec      # 0x18(sp) of sub_004228: 8 or 4
+        self.w5 = b"\0" * 5       # gp-0x6c00..-0x6bfc, five getbits(8) (pass 0x14)
 
 
-def _walk1(ctx: Cf1Context, idx: int, recsize: int):
-    """Come _walk ma itera count+1 record (trace m68k: bls su entry.off + count*rec).
+def s3_record_size(dst, table) -> int:
+    """S3 record size: 8 if u16[T[0x05] + T[0x3f] + 0x10] == 0 else 4 (RR +0x42e0, +0x4cf0)."""
+    off = table[T_DESC_BASE] + table[T_S3_DISP_141516] + 0x10
+    return 8 if struct.unpack_from(">H", dst, off)[0] == 0 else 4
 
-    Fonte: pbp+0x445c (add.w d4, $10(a7)) + $4696 (bls): loop si ferma
-    quando d6 > entry.off + count*rec, quindi esegue count+1 corpi.
-    Usato per kind=0x24/0x25/0x26 (non per 0x09/0x0a che usano count).
+
+def _flag_or(ctx: Cf1Context, width: int) -> int:
+    """getbits(1) ? getbits(16) : getbits(width) — used by passes 0x14 (RR +0x46ec, +0x4880)."""
+    return ctx.g(16) if ctx.g(1) else ctx.g(width)
+
+
+def _section(ctx: Cf1Context, idx: int, rec: int, kind: int, pas: int, st: _State) -> None:
+    """sub_004228 — decode one pass over section `idx`.
+
+    Sections 0, 1, 2 hold count + 1 records (the last is a terminator), the
+    others count records (RR +0x4288..0x42dc). A section with count 0 is not
+    read at all (RR +0x4280).
     """
     e = ctx.entry(idx)
+    if e.count == 0:
+        return
+    last = (e.off + (e.count - 1) * rec) & 0xFFFF
+    if kind in (KIND_S0, KIND_S1, KIND_S2):
+        last = (last + rec) & 0xFFFF
+    pb = ctx.ptrbits
+    e3_off = ctx.entry(3).off
+    prev_s3 = prev_e5 = None
     cur = e.off
-    end = e.off + (e.count + 1) * recsize
-    prev = -1
-    while cur < end:
-        yield cur, prev, cur == e.off
-        prev, cur = cur, cur + recsize
-
-
-def _dec_14_s0(ctx: Cf1Context) -> None:
-    """kind=0x24 — sezione 0, T[0x3b] byte/record.
-
-    Fonte: m68k pbp+0x455c-0x458f (verificato):
-      getbits(7)         → +0 u8   (pbp+0x4566: bsr $4a10)
-      getbits(1)         → +1 u8   (pbp+0x4570: bsr $49d4)
-      getbits(PTRBITS-1) << 1 → +2 u16  (pbp+0x4582-0x458c)
-    """
-    pb = ctx.ptrbits
-    rec = ctx.T(T_REC_S0_141516)
-    for cur, _prev, _first in _walk1(ctx, 0, rec):
-        ctx.b(cur + 0, ctx.g(7))
-        ctx.b(cur + 1, ctx.g(1))
-        ctx.w(cur + 2, ctx.g(pb - 1) << 1)
-
-
-def _dec_14_s1(ctx: Cf1Context, raw4: bytes,
-               ptrbits_s3: int, s3_rec: int) -> None:
-    """kind=0x25 — sezione 1 geo, T[0x3a] byte/record.
-
-    Fonte: m68k pbp+0x4594-0x4603 (verificato):
-      getbits(PTRBITS)                        → +0  u16  NAME_PTR
-      e3.off + getbits(ptrbits_s3)*s3_rec     → +2  u16  ptr sez.3
-      flag=getbits(1); getbits(32 if flag else raw4[1]) → +4  u32
-      getbits(32)                             → +8  i32  X assoluto  ✅ VERIFIED
-      getbits(32)                             → +12 i32  Y assoluto  ✅ VERIFIED
-    """
-    pb = ctx.ptrbits
-    e3_off = ctx.entry(3).off
-    rec = ctx.T(T_REC_S1_141516)
-    for cur, _prev, _first in _walk1(ctx, 1, rec):
-        ctx.w(cur + 0, ctx.g(pb))
-        s3_idx = ctx.g(ptrbits_s3)
-        ctx.w(cur + 2, (e3_off + s3_idx * s3_rec) & 0xFFFF)
-        width = 32 if ctx.g(1) else raw4[1]
-        ctx.l(cur + 4, ctx.g(width))
-        ctx.l(cur + 8, ctx.g(32))   # X
-        ctx.l(cur + 12, ctx.g(32))  # Y
-
-
-def _dec_14_s2(ctx: Cf1Context, raw4: bytes,
-               ptrbits_s3: int, s3_rec: int) -> None:
-    """kind=0x26 — sezione 2, T[0x3c] byte/record.
-
-    Fonte: m68k pbp+0x4608-0x4657 (verificato):
-      getbits(PTRBITS)                        → +0  u16
-      e3.off + getbits(ptrbits_s3)*s3_rec     → +2  u16  ptr sez.3
-      flag=getbits(1); getbits(32 if flag else raw4[0]) → +4  u32
-    """
-    pb = ctx.ptrbits
-    e3_off = ctx.entry(3).off
-    rec = ctx.T(T_REC_S2_141516)
-    for cur, _prev, _first in _walk1(ctx, 2, rec):
-        ctx.w(cur + 0, ctx.g(pb))
-        s3_idx = ctx.g(ptrbits_s3)
-        ctx.w(cur + 2, (e3_off + s3_idx * s3_rec) & 0xFFFF)
-        width = 32 if ctx.g(1) else raw4[0]
-        ctx.l(cur + 4, ctx.g(width))
-
-
-def _dec_14_s3(ctx: Cf1Context, raw4: bytes, s3_rec: int) -> None:
-    """Sezione 3 — kind=0x0a (8 byte/rec) o kind=0x09 (4 byte/rec, delta).
-
-    kind=0x0a (pbp+0x44a2-0x44bf + 0x4654): count iterazioni
-      getbits(32) → +0 i32 X,  getbits(32) → +4 i32 Y
-
-    kind=0x09 (pbp+0x44c2-0x4557): count iterazioni
-      primo record:  getbits(16) → +0 u16,  getbits(16) → +2 u16
-      successivi: _delta_s3 con dw=raw4[2] per ciascun campo
-    """
-    e3 = ctx.entry(3)
-    if s3_rec == 8:
-        for cur, _prev, _first in _walk(ctx, 3, 8):
-            ctx.l(cur + 0, ctx.g(32))
+    while cur <= last:
+        if kind == KIND_S3_ABS:                       # +0x437c
+            ctx.l(cur, ctx.g(32))
             ctx.l(cur + 4, ctx.g(32))
-    else:
-        dw = raw4[2]
-        cur = e3.off
-        end = e3.off + e3.count * 4
-        prev = -1
-        while cur < end:
-            if prev < 0:
-                v0 = ctx.g(16)
-                v1 = ctx.g(16)
+        elif kind == KIND_S3_DELTA:                   # +0x43b4
+            if cur == e.off:
+                ctx.w(cur, ctx.g(16))
+                ctx.w(cur + 2, ctx.g(16))
             else:
-                v0 = _delta_s3(ctx, struct.unpack_from(">H", ctx.dst, prev)[0], dw)
-                v1 = _delta_s3(ctx, struct.unpack_from(">H", ctx.dst, prev + 2)[0], dw)
-            ctx.w(cur + 0, v0)
-            ctx.w(cur + 2, v1)
-            prev, cur = cur, cur + 4
+                for f in (0, 2):
+                    prev = ctx.rw(prev_s3 + f)
+                    if ctx.g(1):
+                        v = ctx.g(16) if ctx.g(1) else prev - ctx.g(st.raw4[2])
+                    else:
+                        v = prev + ctx.g(st.raw4[2])
+                    ctx.w(cur + f, v)
+            prev_s3 = cur
+        elif kind == KIND_S0:                         # +0x4544
+            ctx.b(cur, ctx.g(7))
+            ctx.b(cur + 1, ctx.g(1))
+            ctx.w(cur + 2, ctx.g(pb - 1) << 1)
+        elif kind == KIND_S1:
+            if pas == PASS_BASE:                      # +0x45a8
+                ctx.w(cur, ctx.g(pb))
+                ctx.w(cur + 2, e3_off + ctx.g(st.pb_s3) * st.s3_rec)
+                ctx.l(cur + 4, ctx.g(32 if ctx.g(1) else st.raw4[1]))
+                ctx.l(cur + 8, ctx.g(32))
+                ctx.l(cur + 12, ctx.g(32))
+            elif pas == PASS_20:                      # +0x46ac
+                ctx.w(cur + 0x10, ctx.g(pb - 1) << 1)
+                _flag_or(ctx, st.w5[0])               # read, not stored
+            elif pas == PASS_23:                      # +0x4728
+                ctx.w(cur + 0x12, ctx.g(pb - 1) << 1)
+        elif kind == KIND_S2:
+            if pas == PASS_BASE:                      # +0x4764
+                ctx.w(cur, ctx.g(pb))
+                ctx.w(cur + 2, e3_off + ctx.g(st.pb_s3) * st.s3_rec)
+                ctx.l(cur + 4, ctx.g(32 if ctx.g(1) else st.raw4[0]))
+            elif pas == PASS_20:                      # +0x483c
+                ctx.w(cur + 8, ctx.g(pb - 1) << 1)
+                ctx.w(cur + 0x0A, _flag_or(ctx, st.w5[1]))
+            elif pas == PASS_23:                      # +0x48d8
+                ctx.w(cur + 0x0C, ctx.g(pb - 1) << 1)
+        elif kind == KIND_E4 and pas == PASS_20:      # +0x4914
+            for f in range(3):
+                ctx.w(cur + 2 * f, _flag_or(ctx, st.w5[2 + f]))
+        elif kind == KIND_E5 and pas == PASS_23:      # +0x4a58
+            # the firmware's "previous record" pointer starts at address 0
+            # (+0x4284); a first record that inherits a field has no source.
+            for off, width, size in ((0, pb, 2), (2, 8, 1), (3, 5, 1)):
+                if ctx.g(1):
+                    v = ctx.g(width)
+                elif prev_e5 is None:
+                    raise Cf1Error(f"e5 record at {cur}: first record inherits +{off}")
+                else:
+                    v = ctx.rw(prev_e5 + off) if size == 2 else ctx.dst[prev_e5 + off]
+                (ctx.w if size == 2 else ctx.b)(cur + off, v)
+            prev_e5 = cur
+        cur = (cur + rec) & 0xFFFF
+
+
+def _s2_tail(ctx: Cf1Context) -> None:
+    """S2 +0x0e: the stream's last pass. NOT in the RR firmware; derived from the data.
+
+    RR 0101 `sub_004b88` returns after the two text flags (+0x5024) and never
+    writes S2 +0x0e, yet plain blocks carry a value there. On DB-REL 34 packed
+    blocks, bits follow the last text flag exactly when S2 is non-empty, and
+    reading, for each of the count + 1 S2 records, `getbits(1) ? getbits(16)
+    : previous value` consumes every remaining set bit (oracle_14_16.py `pad`).
+    The first record always carries its value; an explicit value never
+    repeats the previous one, and the terminator ends at 0, as on plain blocks.
+    """
+    e = ctx.entry(2)
+    if e.count == 0:
+        return
+    rec = ctx.T(T_REC_S2_141516)
+    prev = None
+    for k in range(e.count + 1):
+        cur = e.off + k * rec
+        if ctx.g(1):
+            prev = ctx.g(16)
+        elif prev is None:
+            raise Cf1Error(f"S2 record at {cur}: first record inherits +0x0e")
+        ctx.w(cur + 0x0E, prev)
+
+
+def sections_end(ctx: Cf1Context) -> int:
+    """First byte past the last non-empty record section (where the text starts)."""
+    t = ctx.table
+    recs = [t[T_REC_S0_141516], t[T_REC_S1_141516], t[T_REC_S2_141516],
+            s3_record_size(ctx.dst, t), t[T_REC_E4_141516], t[T_REC_E5_141516]]
+    hi = t[T_PROLOG_141516]
+    for i, rec in enumerate(recs):
+        e = ctx.entry(i)
+        if e.count:
+            hi = max(hi, e.off + (e.count + (1 if i < 3 else 0)) * rec)
+    return hi
 
 
 def decode_type14_16(ctx: Cf1Context) -> None:
-    """pbp+0x46aa — decoder BLOCK_TYPE 0x14/0x15/0x16 (CF=1).
+    """RR db_pub sub_004b88 — BLOCK_TYPE 0x14, 0x15, 0x16, 0x1C, 0x1D, 0x1E (CF=1).
 
-    Tutti e tre i tipi usano la stessa funzione m68k (dispatch pbp+0x3698).
+    Raw, before the bitstream:
+      T[0x3d] bytes  prologue: header, six-entry descriptor, bbox, 0x30..0x33
+      4 bytes        raw4: [0] S2 +4 width, [1] S1 +4 width, [2] S3 delta width
+    Bitstream (MSB first):
+      pass 0x0e      S0, S1, S2, S3; text
+      DB-REL >= 20   5 x getbits(8) widths; e4; S1 +0x10; S2 +0x08/+0x0a
+      DB-REL >= 23   e5; S1 +0x12; S2 +0x0c; if getbits(1): text; if getbits(1): text
+      DB-REL > 23    S2 +0x0e (not in the firmware; see _s2_tail)
 
-    Pre-bitstream (raw, prima di bits_init — traccia da pbp+0x46aa):
-      T[0x3d]  byte di prologo   (header + descriptor + bbox)
-      4 byte   raw4              (larghezze campo per le sezioni):
-                 raw4[0]: larghezza campo UNKNOWN sezione 2   (pbp+0x464a)
-                 raw4[1]: larghezza campo UNKNOWN sezione 1   (pbp+0x45dc)
-                 raw4[2]: larghezza delta sezione 3 kind=0x09 (pbp+0x44f4)
-                 raw4[3]: ruolo non confermato
-
-    Bitstream MSB-first (dopo bits_init):
-      sezione 0: kind=0x24, T[0x3b] byte/rec  (_dec_14_s0)
-      sezione 1: kind=0x25, T[0x3a] byte/rec  (_dec_14_s1)
-      sezione 2: kind=0x26, T[0x3c] byte/rec  (_dec_14_s2)
-      sezione 3: kind=0x0a (8 b) o 0x09 (4 b) (_dec_14_s3)
-      testo:     dec_text
-
-    Template obbligatorio (fonte: m68k pbp+0x46aa, dbq/pbp.asm):
-
-    Campo: S1+0  NAME_PTR
-    Fonte: pbp+0x45a2 (getbits(PTRBITS) → move.w d0, (a0))
-    Metodo di verifica: oracle_14_16.py — ptr in range testo
-    Stato: UNCONFIRMED
-
-    Campo: S1+2  ptr_s3
-    Fonte: pbp+0x45bc-0x45ca (getbits(ptrbits_s3)*s3_rec + entry3.off)
-    Metodo di verifica: oracle_14_16.py — ptr in bounds sezione 3
-    Stato: UNCONFIRMED
-
-    Campo: S1+4  UNKNOWN (u32)
-    Fonte: pbp+0x45ce-0x45e8 (flag getbits(1); getbits(32 o raw4[1]))
-    Metodo di verifica: —
-    Stato: UNCONFIRMED
-
-    Campo: S1+8  X assoluto (i32)
-    Fonte: pbp+0x45ec (bsr.w $4a50 = getbits(32) → move.l d0, $8(a0))
-    Metodo di verifica: oracle_14_16.py — range geografico EU 0/1958 bad su 10 blocchi
-    Stato: VERIFIED (2026-09-19)
-
-    Campo: S1+12 Y assoluto (i32)
-    Fonte: pbp+0x45f8 (bsr.w $4a50 → move.l d0, $c(a0))
-    Metodo di verifica: oracle_14_16.py — range geografico EU 0/1958 bad su 10 blocchi
-    Stato: VERIFIED (2026-09-19)
+    Record layouts (bytes):
+      S0 (T[0x3b]=4)  +0 u8 category (7 bits), +1 u8 draw flag, +2 u16 S1/S2 offset
+      S1 (T[0x3a]=20) +0 name, +2 S3 offset, +4 u32, +8 i32 X, +12 i32 Y,
+                      +0x10 u16 (always 0 on plain blocks), +0x12 e5 offset
+      S2 (T[0x3c]=16) +0 name, +2 S3 offset, +4 u32, +8 e4 offset, +0x0a u16,
+                      +0x0c e5 offset, +0x0e u16 (_s2_tail)
+      S3              8 B absolute i32 X, Y, or 4 B u16 local x, y (delta coded)
+      e4 (T[0x15]=6)  3 x u16
+      e5 (T[0x59]=4)  +0 name, +2 u8, +3 u8 (5 bits)
     """
-    ctx.copy_raw(0, ctx.T(T_PROLOG_141516))
+    t = ctx.table
+    ctx.copy_raw(0, t[T_PROLOG_141516])                       # +0x4bac
+    e3_count = struct.unpack_from(">H", ctx.dst, t[T_DESC_BASE] + 14)[0]
+    st = _State(raw4=ctx.copy_raw(-1, 4),                     # +0x4c00
+                pb_s3=bits_needed(e3_count + 1),              # +0x4bd4
+                s3_rec=s3_record_size(ctx.dst, t))
+    ctx.bits_init()                                           # +0x4c20
+    floor = sections_end(ctx)
 
-    base_d = ctx.T(T_DESC_BASE)
-    e3_count = struct.unpack_from(">H", ctx.dst, base_d + 14)[0]
-    ptrbits_s3 = bits_needed(e3_count + 1)
+    _section(ctx, 0, t[T_REC_S0_141516], KIND_S0, PASS_BASE, st)
+    _section(ctx, 1, t[T_REC_S1_141516], KIND_S1, PASS_BASE, st)
+    _section(ctx, 2, t[T_REC_S2_141516], KIND_S2, PASS_BASE, st)
+    _section(ctx, 3, st.s3_rec,
+             KIND_S3_ABS if st.s3_rec == 8 else KIND_S3_DELTA, PASS_BASE, st)
+    dec_text(ctx, floor)                                      # +0x4d64
 
-    raw4 = ctx.copy_raw(-1, 4)
-    s3_rec = _s3_rec_size(ctx)
+    if ctx.dbrel < 0x14:                                      # +0x4d8c
+        return
+    st.w5 = bytes(ctx.g(8) for _ in range(5))                 # +0x4d98
+    _section(ctx, 4, t[T_REC_E4_141516], KIND_E4, PASS_20, st)
+    _section(ctx, 1, t[T_REC_S1_141516], KIND_S1, PASS_20, st)
+    _section(ctx, 2, t[T_REC_S2_141516], KIND_S2, PASS_20, st)
 
-    ctx.bits_init()
-
-    _dec_14_s0(ctx)
-    _dec_14_s1(ctx, raw4, ptrbits_s3, s3_rec)
-    _dec_14_s2(ctx, raw4, ptrbits_s3, s3_rec)
-    _dec_14_s3(ctx, raw4, s3_rec)
-    dec_text(ctx)
-
-
+    if ctx.dbrel < 0x17:                                      # +0x4f00
+        return
+    _section(ctx, 5, t[T_REC_E5_141516], KIND_E5, PASS_23, st)
+    _section(ctx, 1, t[T_REC_S1_141516], KIND_S1, PASS_23, st)
+    _section(ctx, 2, t[T_REC_S2_141516], KIND_S2, PASS_23, st)
+    if ctx.g(1):                                              # +0x4fbc
+        dec_text(ctx, floor)
+    if ctx.g(1):                                              # +0x4ff0
+        dec_text(ctx, floor)
+    if ctx.dbrel > 0x17:        # seen on DB-REL 34; not read by RR 0101 (see _s2_tail)
+        _s2_tail(ctx)

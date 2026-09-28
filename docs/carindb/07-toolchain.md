@@ -14,7 +14,7 @@
 | `carin/parser/iso.py` | ISO 9660 reader (no mount), `CarinVolume` over `DB_0+DB_1` (DVD, 512-byte unit) or a single `/carindb` (CD, 2048-byte unit), `calibrate()` (detects `subrel`), `CarinBlock`, `find_bbox` (98,304 grid: DVD only), `to_wgs84`/`to_carin` |
 | `carin/parser/calibration.py` | `GeographicCalibrator` (Levenberg-Marquardt + grid search) |
 | `carin/parser/compression.py` | `CompressionAnalyzer`, `LzssSweep`, `sweep_lzss`, `decode_lzw`, `decode_lz4_block`, `entropy`, `plain_prefix`, `score_output` |
-| `carin/parser/cf1/` | **CF=1 bit-packing codec** — `decode_block(raw, table, dbrel, subrel, sector_size)` for `0x00`, `0x0E`, `0x14`–`0x16`; `encode_type0E`; `decode_s2_links` (`0x0E` S2 → `0x00` tile, segment run, house numbers); `probe.py` (per-disc `subrel` detection); parameterized by `RECORD_SIZE_TABLE` — see [`04-cf1-codec.md`](04-cf1-codec.md) |
+| `carin/parser/cf1/` | **CF=1 bit-packing codec** — `decode_block(raw, table, dbrel, subrel, sector_size)` for `0x00`, `0x0E`, `0x14`–`0x16`, `0x1C`–`0x1E`; `decode_ctx` (same, returns the context for oracles); `encode_type0E`; `decode_s2_links` (`0x0E` S2 → `0x00` tile, segment run, house numbers); `probe.py` (per-disc `subrel` detection); parameterized by `RECORD_SIZE_TABLE` — see [`04-cf1-codec.md`](04-cf1-codec.md) |
 | `carin/parser/geometry.py` | `road_segments(data, table)`: WGS84 road segments of a decoded `0x00` tile with name, locality, display class; `tile_frame`, `header_bounds` — see [`02-geo.md`](02-geo.md) §8.3 |
 
 ## Analysis & extraction scripts (`scripts/`)
@@ -32,6 +32,7 @@
 | `m68k_dis.py` | disassembles m68k **in 68040 mode** (required for `BFEXTU`) |
 | `mips_dis.py`, `mips_graph.py`, `mips_func.py` | MIPS disassembler, call graph, annotated dump (default firmware: Mk3 `bsw_load`, override with `CARIN_FW2`) |
 | `mips_listing.py` | full listing of one MIPS module with functions split and `$fp` call targets resolved (used for RR `rpmod`) |
+| `rr_cf1_dispatch.py` | BLOCK_TYPE → CF=1 decoder table of a MIPS `db_pub` (RR `bsw2`), from the jump table in `sub_002a48` |
 | `fw_xref.py` | xref of PC-relative constant strings |
 | `os9_data.py` | static data area, resolves `a6` references |
 | `fw_arch_detect.py` | detects module CPU architecture |
@@ -54,7 +55,8 @@
 |---|---|
 | `oracle_0e.py` | STEP 2 oracle — S0/S1/S2 structural invariants on `0x0E` CF=1 blocks; 10/10 PASS |
 | `oracle_0e_s0.py` | STEP 2 oracle — S0 field statistics (A monotone, B block-constant, D pointer validity) |
-| `oracle_14_16.py` | STEP 1 oracle — X/Y geographic range on `0x16` CF=1 blocks; 1958/1958 PASS |
+| `oracle_14_16.py` | structural oracle for `0x14`–`0x16`, `0x1C`–`0x1E`, any CF; qualified on all CF=0/2 blocks of 21708/21734, all CF=1 pass (`04-cf1-codec.md` §9.11.11) |
+| `layer_stats.py` | CF=1 vs CF=0/2 distributions of the scale layers (codes, records per section) |
 | `find_parcel.py` | **STEP 3** — `find_parcel(vol, X, Y) → sector`; builds/loads spatial index from S2 anchors (superseded in meaning: S2 anchors are linked `0x00` tile centres; the disc's own index is `0x07`–`0x09`, roadmap A3) |
 | `oracle_find_parcel.py` | STEP 3 oracle — 10/10 PASS 2026-09-19; samples blocks Albania→Austria |
 | `oracle_encode_0e.py` | **STEP 4** oracle — `encode_type0E` round-trip: raw→decode→encode→decode, compare `[4:]`; 10/10 PASS 2026-09-19 |

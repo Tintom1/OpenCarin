@@ -44,6 +44,11 @@ DVD-9 discs with the `/DB/DB_0` + `/DB/DB_1` split layout.
 
 Enumerate with `python scripts/firmware/os9_modules.py build/fw/V_2_RR_0101_BMWC01S_app_sw_bsw2`.
 
+RR `db_pub`'s CF=1 BLOCK_TYPE dispatch (which decoder handles which type) is printed by
+`python scripts/firmware/rr_cf1_dispatch.py`; the scale-layer decoder read from it is in
+[`../carindb/04-cf1-codec.md`](../carindb/04-cf1-codec.md) §9.11.11. The Mk3 `db_pub` has a
+different dispatcher that this script does not find.
+
 The MIPS `db_pub` listings in `docs/fw/mips_*.asm` were traced on **Mk3** `bsw_load`
 (`scripts/firmware/mips_dis.py`, `CARIN_FW2`); the CF=1 codec they describe decodes the
 DVDs, so Mk3 and RR share it.

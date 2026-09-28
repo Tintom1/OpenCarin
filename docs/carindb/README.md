@@ -29,7 +29,7 @@ Load order for a cold agent: start here, then jump to the part matching your tas
 | 1 | [`01-architecture.md`](01-architecture.md) | Filesystem, generic block layout, superblock/schema, system blocks, text encoding | ✅ VERIFIED |
 | 2 | [`02-geo.md`](02-geo.md) | Coordinate system, bounding boxes, POI/feature georeferenced records | ✅ VERIFIED / RESOLVED |
 | 3 | [`03-road-network.md`](03-road-network.md) | Road graph `0x00`–`0x03` (§6.7), street-name directory `0x0E`, address indexes, house numbers | ✅ mostly RESOLVED (open items in part 6) |
-| 4 | [`04-cf1-codec.md`](04-cf1-codec.md) | `COMPRESSION_FLAG=1` decoder, found in original firmware | ✅ RESOLVED (`0x00`, `0x0E`, `0x14`–`0x16`; `0x1C`–`0x1E` open) |
+| 4 | [`04-cf1-codec.md`](04-cf1-codec.md) | `COMPRESSION_FLAG=1` decoder, found in original firmware | ✅ RESOLVED (`0x00`, `0x0E`, `0x14`–`0x16`, `0x1C`–`0x1E`) |
 | 5 | [`05-failed-attempts.md`](05-failed-attempts.md) | Every codec hypothesis that was falsified | ⛔ NEGATIVE KNOWLEDGE |
 | 6 | [`06-objectives-roadmap.md`](06-objectives-roadmap.md) | Status per block type, corrected conclusions, prioritized roadmap | 🎯 OPEN (rewritten 2026-09-28) |
 | 7 | [`07-toolchain.md`](07-toolchain.md) | Parser library + scripts reference | 🔧 REFERENCE |
@@ -43,7 +43,7 @@ The road network is not global tables but **parcels** with block-local 16-bit
 pointers. Coordinates are a linear (non-Mercator) lon/lat grid, **RESOLVED**.
 30% of blocks use `COMPRESSION_FLAG=1`, which is **not compression** but
 structure-driven bit-packing; its decoder was recovered from the navigation-unit
-firmware and is **RESOLVED for `0x00`, `0x0E` and `0x14`–`0x16`** (parts 4 & 5).
+firmware and is **RESOLVED for `0x00`, `0x0E`, `0x14`–`0x16` and `0x1C`–`0x1E`** (parts 4 & 5).
 Firmware evidence comes from two BMW platforms — the CC-93 (m68k, CD) and the
 RoadRunner (MIPS, DVD) that reads these discs; see [`../fw/03-firmware-provenance.md`](../fw/03-firmware-provenance.md).
 

@@ -35,8 +35,8 @@ Every block is readable except one group:
 |---|---|---|
 | CF=0 (plain) | all | ✅ |
 | CF=2 (zlib) | all | ✅ |
-| CF=1 (bit-packed) | `0x00`, `0x0E`, `0x14`–`0x16` | ✅ `carin/parser/cf1/`; `subrel` detected per disc (`CarinVolume.calibrate`), CD layout supported, `dec_text` overwrite fixed (was corrupting ~8% of `0x00` blocks) |
-| CF=1 | `0x1C`–`0x1E` (412 blocks on 21708, 661 on 21734) | ❓ **not registered.** `decode_type14_16` runs on them and section 0 yields the same category codes as `0x14`–`0x16`, but it is not validated |
+| CF=1 (bit-packed) | `0x00`, `0x0E` | ✅ `carin/parser/cf1/`; `subrel` detected per disc (`CarinVolume.calibrate`), CD layout supported, `dec_text` overwrite fixed (was corrupting ~8% of `0x00` blocks) |
+| CF=1 | `0x14`–`0x16`, `0x1C`–`0x1E` | ✅ one decoder, transcribed from RR `db_pub` `sub_004b88` (2026-09-28). Oracle `oracle_14_16.py` qualified on all 20,227 CF=0/CF=2 blocks, then passes all CF=1 blocks: 21708 186/1,446/7,719/318/80/14, 21734 250/2,265/11,049/544/103/14 (`0x14`/`0x15`/`0x16`/`0x1C`/`0x1D`/`0x1E`). The CC-93 port it replaces passed 0 (missing passes, empty-section overwrite). S2 `+0x0e` comes from a last pass no RR build reads (data-derived) |
 | CF=1 `0x00`, DB-REL 34 | the `+0x18` pass after pass `0x17` | ⚠️ not decoded (head undecoded); plain tiles are fine |
 
 ## 2. Block types and their meaning
@@ -77,9 +77,9 @@ Every block is readable except one group:
 ## 4. Open work, by priority
 
 ### A. Complete and correct the reader
-1. **`0x1C`–`0x1E` CF=1.** Build an oracle (section 1/2 geometry against the CF=0 blocks of the
-   same layer and area), then register the decoder. *Done =* 412/412 blocks decode on 21708
-   with the oracle passing.
+1. ~~**`0x1C`–`0x1E` CF=1.**~~ Done 2026-09-28 (`04-cf1-codec.md` §9.11.11). Left open: the
+   meaning of S2 `+0x0e` (read by no available firmware) and of S1/S2 `+4`, `+0x0a`, e4;
+   the 8-byte S3 branch (no block uses it); DB-REL < 34 discs.
 2. **`+0x18` pass in packed `0x00` tiles.** Decode the pass head so the pass can be found
    without search. *Done =* `+0x18` matches plain-tile statistics on 21708/21734.
 3. **Spatial lookup on `0x07`–`0x09`.** Library module that answers "tiles of layer X at

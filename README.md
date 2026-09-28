@@ -71,8 +71,7 @@ While the foundation is cracked, building a full compiler from OpenStreetMap req
 
 ### 3. Decoder Ports for the Remaining Types 🟠 High
 * Port the bit-packing decoder logic from MIPS firmware (`db_pub`) for the remaining block types into Python (`carin/parser/cf1/`).
-  * Already ported: types `0x00`, `0x0E` and `0x14`–`0x16`.
-  * On CD-ID 21594, the only `COMPRESSION_FLAG = 1` blocks without a decoder are types `0x1C`–`0x1E` (116 blocks).
+  * Already ported: types `0x00`, `0x0E`, `0x14`–`0x16` and `0x1C`–`0x1E` (the last six from the RoadRunner `db_pub`, checked on every block of DVDs 21708 and 21734; not yet run on CD-ID 21594's 116 packed `0x1C`–`0x1E` blocks).
 
 ### 4. OpenStreetMap to CARiN Serializer & ISO Compiler 🟡 Ongoing
 * Pipeline to parse OSM PBF data (`osmium`), partition nodes/ways into 512-byte sector-aligned parcels, compute coordinate transforms, write CARiN block headers, and package a bootable ISO 9660 filesystem.

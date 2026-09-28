@@ -256,8 +256,11 @@ def _sections_end(ctx: Cf1Context) -> int:
     return hi
 
 
-def dec_text(ctx: Cf1Context) -> None:
+def dec_text(ctx: Cf1Context, floor: "int | None" = None) -> None:
     """pbp+0x4862 — blob dei nomi, codice a prefisso + dizionario di blocco.
+
+    `floor` is the first byte past the block's record sections; it defaults
+    to the type 0x00 layout (`_sections_end`). Other block types pass theirs.
 
     The DB-REL >= 23 pass ends with two optional dec_text calls whose flag
     bits are read from the stream's tail padding, so they fire spuriously on
@@ -270,13 +273,16 @@ def dec_text(ctx: Cf1Context) -> None:
     pb = ctx.ptrbits
     start = ctx.g(pb)
     end = ctx.g(pb)
+    ctx.texts.append((start, end))
     if start == 0 and end == 0:
         return
     words = []
     for _ in range(6):
         n = ctx.g(5)
         words.append(bytes(ctx.g(7) for _ in range(n)))
-    ok = start <= end < len(ctx.dst) and start >= _sections_end(ctx)
+    if floor is None:
+        floor = _sections_end(ctx)
+    ok = start <= end < len(ctx.dst) and start >= floor
     p = start
     while p <= end and p < len(ctx.dst):
         code = ctx.g(2)

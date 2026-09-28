@@ -26,13 +26,16 @@ T_REC_S0_0E = 0x2D      # record sezione 0 (8 byte: ">HBBHH")
 T_REC_S1_0E = 0x41      # record sezione 1 (6 byte)
 T_REC_S2_0E = 0x42      # record sezione 2 (24 byte; metà ancora grezza, metà delta)
 
-# --- indici RECORD_SIZE_TABLE specifici di BLOCK_TYPE 0x14/0x15/0x16 ---------
-# Fonte: m68k pbp+0x46aa (comune ai tre tipi), formula T[idx] → -(0x71cc-2*idx)(a6)
-T_PROLOG_141516 = 0x3D  # lunghezza prologo (pbp+0x46b6: move.w -$7152(a6))
-T_REC_S1_141516 = 0x3A  # sezione 1 (geo, kind=0x25): pbp+0x4712: move.w -$7158(a6)
-T_REC_S0_141516 = 0x3B  # sezione 0 (kind=0x24):      pbp+0x46f4: move.w -$7156(a6)
-T_REC_S2_141516 = 0x3C  # sezione 2 (kind=0x26):      pbp+0x4732: move.w -$7154(a6)
-T_S3_DISP_141516 = 0x3F # offset supplementare per selezione tipo sez.3: pbp+0x4754: move.w -$714e(a6)
+# --- indici RECORD_SIZE_TABLE dei BLOCK_TYPE 0x14-0x16, 0x1C-0x1E ------------
+# Fonte: RR db_pub sub_004b88 (bsw2 0101), T[id] = lhu (L + 0x1e + 2*id), L = gp[-0x7f24].
+# Stessi indici in m68k pbp+0x46aa, T[idx] -> -(0x71cc-2*idx)(a6).
+T_PROLOG_141516 = 0x3D  # lunghezza prologo            RR +0x4bac (L+0x98)
+T_REC_S1_141516 = 0x3A  # sezione 1                    RR +0x4c7c (L+0x92)
+T_REC_S0_141516 = 0x3B  # sezione 0                    RR +0x4c44 (L+0x94)
+T_REC_S2_141516 = 0x3C  # sezione 2                    RR +0x4cb8 (L+0x96)
+T_S3_DISP_141516 = 0x3F # selettore sez.3 a desc+T[0x3f]+0x10  RR +0x4cf4 (L+0x9c)
+T_REC_E4_141516 = 0x15  # sezione 4 (passata DB-REL>=20)  RR +0x4e48 (L+0x48)
+T_REC_E5_141516 = 0x59  # sezione 5 (passata DB-REL>=23)  RR +0x4f18 (L+0xd0)
 
 
 # tabella dei caratteri del decoder di testo (pbp IData, offset dati 0x1450)

@@ -69,6 +69,7 @@ class Cf1Context:
     cache_s2: int = 1               # pbp: -0x7144(a6)
     m_hi: int = 0                   # 0x0E: M_hi dal pre-header (→ decoded[7])
     m_lo: int = 0                   # 0x0E: M_lo dal pre-header (→ decoded[6])
+    texts: list = field(default_factory=list)  # (start, end) di ogni dec_text, per gli oracle
 
     # ---- primitive ---------------------------------------------------------
     def T(self, idx: int) -> int:

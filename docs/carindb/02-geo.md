@@ -374,6 +374,13 @@ Codes, checked on two CD discs (CD-ID 2952 and CD-ID 21594). Section 0 records d
 `decode_type14_16` are identical to an independent decoder's on 375/375 sampled
 packed blocks.
 
+On the DVDs (CD-ID 21708, 21734) the rule above holds on every block of the six
+types, plain, zlib or packed: every S0 offset lands on an S1 or S2 record boundary
+and the offsets never decrease (`scripts/routing/oracle_14_16.py`, check `s0_ptr`,
+46,215 blocks; decoder: `04-cf1-codec.md` §9.11.11). The same category codes occur
+in packed and plain blocks of each type (`scripts/routing/layer_stats.py`). Full
+record layout: `01-architecture.md`, scale layers.
+
 | code | meaning | evidence |
 |---|---|---|
 | `0x00` | land | background fill under islands and coast |
