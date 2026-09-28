@@ -410,69 +410,152 @@ low byte = prefix length (1).
 `offset`/`count` index SECTION_0 of the referenced `0x0A` block
 (stride 8, verified: `0x30 +1*8 = 0x38`, `0x38 +4*8 = 0x58`, …).
 
-### 4.4 `0x0A` — Country Table (sectors 9 and 13, 4 sectors, zlib → 5120 bytes)
+### 4.4 `0x0A` — Country Table
+
+Checked on all four discs (CD-ID 2952, 21594, 21708, 21734); tool `local/tools/country0a.py`.
+
+| Disc | Blocks | Countries | Record size |
+|---|---|---|---|
+| CD-ID 2952 (DB-REL 22) | 1 (sector 5, plain) | 19 (England, Scotland and Wales are separate entries, all with country ID `0xDF`) | 44 B |
+| CD-ID 21594 (DB-REL 34) | 1 (sector 4, plain) | 2 (Ireland, United Kingdom) | 56 B |
+| DVD 21708, DVD 21734 | 2 (sectors 9 and 13, zlib → 5120 B) | 44 + a pseudo-country `europe` (ID `0x400`, code `eu`) in the first block only; the `0x0D` counts differ between the two blocks (meaning unknown) | 56 B |
 
 ```
-+0x08 SECTION_DESCRIPTOR[4] = {0x0030,44}, {0x0190,44}, {0x0000,0}, {0x0B30,128}
-+0x30  SECTION_0: 44 records of  8 bytes -> ">HHI"  (key, count, ptr-to-SECTION_1)
-+0x190 SECTION_1: 44 records of 56 bytes -> country record (below)
-+0xB30 SECTION_3: 128 records of 12 bytes -> ">IHHHH" block references
-                  BLOCK_ID | offset | count | subtype | group
++0x08 SECTION_DESCRIPTOR[4] = {S0,n}, {S1,n}, {0,0}, {S3,m}      (DVD 21708: {0x30,44},{0x190,44},{0,0},{0xB30,128})
+S0: n records of 8 bytes, alphabetical by name -> ">HHI"
+    NAME_OFF  (u16)  offset of the country name (lowercase, NUL-terminated) in this block
+    LANGUAGE  (u16)  1 Dutch, 2 English, 3 French, 4 German, 5 Italian, 6 Spanish, 7 Swedish,
+                     10 Danish, 11 Catalan, 12 Finnish, 14 Norwegian, 15 Portuguese, 18 Polish,
+                     19 Czech, 20 Slovak, 21 Russian, 23 Slovenian, 24 Lithuanian, 25 Bosnian,
+                     26 Croatian, 27 Latvian, 255 none. (Andorra is 0 on CD-ID 2952, 11 on the DVDs.)
+    REC_OFF   (u32)  offset of the country record in S1
+S1: n country records (below)
+S3: m records of 12 bytes -> ">IHHHH"
+    BLOCK_ID (u32) of a 0x11 block | offset | count | POI category | text base
+    The root of a per-country, per-category POI-name trie in 0x11 (see below). The category is
+    a 0x06 POI category code; "text base" is always NAME_OFF of the first S0 entry.
 ```
+The `0x0B` block indexes S0 by initial letter (§4.3).
 
-**Country record (56 bytes), verified across all 44:**
+**Country record** (DB-REL 34: 56 bytes; DB-REL 22: the first 44 bytes, ending after `+0x2A`):
 
 ```
  off  size  field
- 0x00   2   UNKNOWN (always 0x0000)
- 0x02   4   NAME_PTR      (u32) — high16 = name segment, low16 = offset. 6 distinct
-                          segments observed: 6C2E 9A30 F931 CA2F 112E 12A6
- 0x06   2   UNKNOWN (u16) — 0x0006..0x0037
- 0x08   4   0x0000000B    constant across all records
- 0x0C   4   0x00000016    constant
- 0x10   4   0x00000021    constant
- 0x14   4   0x0000002C    constant (= 44 = number of countries)
- 0x18   2   SEC3_OFFSET   offset in SECTION_3 (0 = no entry)
- 0x1A   2   SEC3_COUNT    number of 12-byte records
- 0x1C   2   0x01F4 (500)  \
- 0x1E   2   0x012C (300)   |  DEFAULT_SPEED[4] — constants in this DB
- 0x20   2   0x03E8 (1000)  |  (unit: presumably 0.1 km/h; UNKNOWN)
- 0x22   2   0x01F4 (500)  /
- 0x24   4   FLAGS         0x00000000 / 0x00000001 / 0x00010000
-                          **0x00010000 only for `ie` and `gb`** -> left-hand traffic
- 0x28   2   COUNTRY_ID    id used throughout the DB (at=0x0E, be=0x15, cz=0x38,
-                          de=0x51, dk=0x39, es=0xC4, fr=0x49, gb=0xDF, it=0x69,
-                          nl=0x96, no=0xA0, ch=0xCD, se=0xCC, …)
- 0x2A   2   FLAGS2        0x0000 or 0x0004
- 0x2C   2   COVERAGE      3 = full coverage, 1 = reduced coverage
-                          (1 for by, md, al, ua, gi, mc… )
- 0x2E   2   ISO_CC        2 chars ISO-3166-1 alpha-2 ASCII: "ad","be","de",…
- 0x30   2   UNKNOWN (0x0000)
- 0x32   2   REGION        "eu"
- 0x34   4   UNKNOWN (0x00000000)
+ 0x00   4   CITY_TRIE     BLOCK_ID of a 0x0D block (upstream read 0x02 u32 as a NAME_PTR;
+ 0x04   2                 offset in that block       it is this BLOCK_ID, offset and count)
+ 0x06   2                 count: the root of the country's city-name trie (see below), one
+                          entry per initial letter
+ 0x08  16   four u32: 11, 22, 33, 44 on DB-REL 34; 111,111,111 × 1..4 on CD-ID 2952.
+            The same 16 bytes are in the 0x13 build-info block. A placeholder or format
+            signature, not country data
+ 0x18   2   S3_OFFSET     offset of the country's first S3 record (0 = none)
+ 0x1A   2   S3_COUNT
+ 0x1C   8   4 × u16: 500, 300, 1000, 500 for every country on every disc, 0 for `europe`.
+            The firmware multiplies each by 100 (as it does segment lengths); what they
+            mean is not known. Upstream's "default speeds in 0.1 km/h" is unconfirmed
+ 0x24   2   LEFT_HAND     1 only for Ireland and the United Kingdom (England, Scotland, Wales
+                          on CD-ID 2952). Gibraltar, which drives on the right, has 0
+ 0x26   2   UNKNOWN       1 for be, cz, de, gi, li, lu, me, nl, at, ch, sk, rs; else 0
+ 0x28   2   COUNTRY_ID    the country's position in the English-name order of ISO 3166
+                          (al 0x02, ad 0x05, at 0x0E, … gb 0xDF, va 0xE5), with Serbia (0xF5)
+                          and Montenegro (0xF6) appended at the end
+ 0x2A   2   FLAGS2        4 on most countries without S3 entries (eastern Europe, the Nordics),
+                          2 on `europe`, else 0
+ --- DB-REL 34 only ---
+ 0x2C   2   COVERAGE      3 full, 1 reduced (by, md, al; ua and gi on DVD 21708 only), 0 `europe`
+ 0x2E   2   ISO_CC        ISO 3166-1 alpha-2 ("de", "at", "ie", "gb", "me")
+ 0x30   2   0
+ 0x32   2   REGION        "eu" on the DVDs, "--" on CD-ID 21594
+ 0x34   4   0
 ```
 
-Consistency check of `SEC3_OFFSET/COUNT`:
-`ad` 0x0B30+2·12 = 0x0B48 = `be`; `be` 0x0B48+8·12 = 0x0BA8 = `cz`;
-`cz` 0x0BA8+8·12 = 0x0C08 = `dk`; `de` 0x0C68+9·12 = 0x0CD4 = `es`. ✅
+**Firmware.** Mk3 0127 reads the record in two places with identical code, `rpmod+0x46ff0` (the
+route planner, behind an RPC stub) and `dbq+0x213f0` (database queries). Both find the record
+through S0 (`REC_OFF`) and fill a 20-byte struct: the four `+0x1C` values × 100 as u32, a byte
+`+0x24 == 0` (drives on the right), a byte `+0x26 != 0`, and `COUNTRY_ID`, read only when a
+version number the firmware keeps is at least `0x15` (so it is 0 on older data). In `rpmod` the
+right-hand byte is read back by a caller that returns it (`rpmod+0x2761c`), and it defaults to 1
+when the lookup fails. No reader of the other fields was found; they may be used through the RPC.
 
-```python
-COUNTRY_FMT = ">H I H 4I HH 4H I H H H 2s H 2s I"
-# better to use explicit offsets:
-COUNTRY_RECORD_SIZE = 56
-def parse_country(d, off):
-    name_ptr  = struct.unpack_from(">I", d, off + 0x02)[0]
-    sec3_off, sec3_cnt = struct.unpack_from(">HH", d, off + 0x18)
-    speeds    = struct.unpack_from(">4H", d, off + 0x1C)
-    flags     = struct.unpack_from(">I",  d, off + 0x24)[0]
-    cid       = struct.unpack_from(">H",  d, off + 0x28)[0]
-    coverage  = struct.unpack_from(">H",  d, off + 0x2C)[0]
-    iso_cc    = d[off + 0x2E: off + 0x30].decode("latin-1")
-    region    = d[off + 0x32: off + 0x34].decode("latin-1")
-    return dict(name_ptr=name_ptr, sec3=(sec3_off, sec3_cnt), speeds=speeds,
-                left_hand_traffic=bool(flags & 0x00010000), country_id=cid,
-                coverage=coverage, iso_cc=iso_cc, region=region)
+`ISO_CC` is not what the CNI1 displays: with CD-ID 21594 the unit shows the international
+vehicle registration code "IRL" for Ireland, not "ie". The firmware maps the country to that
+code itself, probably from `COUNTRY_ID`. CD-ID 2952 has no code field at all.
+
+#### 4.4.1 `0x0D`, `0x0F` and `0x11`: name tries
+
+Both are letter tries in the same 12-byte record format as `0x0B` (§4.3):
+`u32 BLOCK_ID | u8 letter | u8 leaf | u16 offset | u16 count | u16 flags (0)`.
+With `leaf` = 0 the record points to the next level (`count` records at `offset` in that
+block, usually a `0x0D`/`0x11` block); with `leaf` = 1 it points to `count` consecutive name
+records in the target block. The letter `@` (0x40) marks the end of a name: `ash@` is the leaf
+for exactly "ash", while `ash` leads on to longer names. A range is split only while it is
+large, so leaves sit at depths 1 to 18. This is how the unit offers only the letters that can
+still follow.
+
+| Trie | Root | Leaves point to | Check (`local/tools/trie0d.py`, `trie11.py`) |
+|---|---|---|---|
+| `0x0D` city names | `0x0A` record `+0x00` (one per country) | `0x0C` city records (8 B, name offset first) | every leaf name starts with its prefix: United Kingdom 35,168, Ireland 62,964 (CD-ID 21594); England 26,692, Scotland 2,921 (CD-ID 2952) |
+| `0x11` POI names | `0x0A` section 3 (one per country and category) | `0x10` POI index records (8 B: name offset, type, locality, detail pointer) | 302 / 302 (CD-ID 21594), 187 / 187 (CD-ID 2952) |
+| `0x0F` road names | `0x0C` city record `+0x00` (one per city, below) | `0x0E` section 0 street records (8 B, §6.3) | 18,848 / 18,861 names under their prefix on 200 cities (CD-ID 21594; the 13 are one Irish range where `i` and `í` sort together); 30,437 / 30,437 on 300 cities (CD-ID 2952) |
+
+The `0x11` categories are the POIs you can search by name: 20 attractions (Guinness Storehouse,
+Madame Tussauds), 32 museums, 35 stadiums, 37 landmarks (Big Ben, Newgrange), 38 theme parks,
+39 national parks, 49 a museum (CD-ID 2952 only), 52 airports (with IATA codes such as `dub`
+and `ork` as alias records, flag `0x0100`), 53 ferry terminals and the Channel Tunnel,
+58 border crossings.
+
+**`0x0C` city records** (`local/tools/city0c.py FILE SECTOR`). Section 0 holds 8-byte entries in
+alphabetical order: `u16 name offset, u16 flags, u16 post-town offset (0 = none), u16 pointer
+into section 1` (e.g. `abbas itchen` → `winchester`). Section 1 records are 24 bytes on
+DB-REL 34 and 20 on DB-REL 22:
+
 ```
++0x00 u32 BLOCK_ID of a 0x0F block \
++0x04 u16 offset                     |  root of the city's road-name trie
++0x06 u16 count                     /
++0x08 u16 offset into section 3, +0x0A u16 count: the city's own 0x11 POI tries
+      (12-byte records like 0x0A section 3; categories 48, 56, 57 seen)
++0x0C u32 BLOCK_ID of a 0x00 tile, +0x10 u16 offset in it: the city centre, used when a
+      city is chosen without a road
+```
+Section 5 holds variable-length brand lists (`renault`, `bp`, `shell`, `tesco`) with `0x11`
+pointers; not decoded.
+
+A street can be listed under more than one city, as separate `0x0E` records reached from
+separate tries. On CD-ID 2952 a street on the border of two towns sits in a packed `0x0E` block
+under one town and in a plain one under the neighbouring larger town. Editing one copy leaves
+the other list unchanged.
+
+**Renaming a street (tested on a CNI1, CD-ID 2952).** A street's name is stored in every city
+list that carries it (plain or packed `0x0E`), in its word-reordered alias (flag `0x1000`, e.g.
+`lane …`) and in the text of its `0x00` tile. Renaming all of them, keeping the new name in the
+same sort position (so no trie range changes), works on the unit: the new name is listed and
+selectable. An earlier rename of one copy only, which also broke that list's sort order, showed
+the old name in the other city's list and crashed the unit when it was selected. Packed blocks can
+be edited without re-encoding by swapping letters whose text codes have the same total bit length
+(`local/tools/textsplice.py`).
+
+A rename that moves the street to another place in the list also works, once the list is re-sorted
+and the city's `0x0F` leaves are rebuilt. The rule the disc's compiler used reproduces every
+city's `0x0F` trie on both CDs (49,310 and 95,543 cities; `local/tools/triebuild.py`):
+
+1. At each level, group the sorted names by their next letter, ignoring accents (`@` when the
+   name ends there). The lists are sorted the same way.
+2. A group whose records all sit in one target block becomes a leaf. A group spanning several
+   blocks is split again on the following letter.
+3. A group gets one trie record per letter that occurs in it, all pointing at the whole group.
+   `ä`, `ö` and `ü` count as letters in their own right. Any other accented letter also brings
+   its plain letter, which comes first (`á` alone gives `a`, `á`).
+
+A made-up city also works. Renaming a city in place (keeping its sort position, so the country's
+`0x0D` leaf still covers it), giving its street records new names, re-encoding the packed `0x0E`
+block with `encode_type0E`, and writing the city's `0x0F` root from the rule alone gives a city
+that can be selected, with the new street list, and a street that can be chosen as a destination.
+The unit's destination line then shows the **old** street and city names ("street, locality"):
+it doesn't take them from the list that was searched, but from another copy of the road's name.
+That could be the post town's `0x0E` list (where `C` gives the locality) or the `0x00` tile text,
+and neither was changed. The `0x0F` rule does not rebuild the `0x0D` city tries: these split some
+groups that sit in one block (open).
 
 ### 4.5 `CARINET` — Event Text Catalog (independent block space)
 
