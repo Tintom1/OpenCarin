@@ -192,6 +192,8 @@ base `0x0E` topology.
     The four "deltas" are **not coordinates**: they are unsigned house-number ranges, and
     there is no sign extension to apply. The anchor table in the pre-header is a per-block
     list of the `0x00` tiles the block links to: `(centre X, centre Y, BLOCK_ID)`.
+    The ranges are the envelope of the per-segment numbers in type `0x04` over the linked
+    run (§6.4).
   - The `is_16` flag is consumed from the bitstream but not stored in the record.
 
 #### `0x0E` is the street-name directory (2026-09-27)
@@ -291,37 +293,40 @@ parcel lookup — use `scripts/find_parcel.py` instead (index from S2 `x_anc`/`y
 > - **Truncation Vulnerability**: For sectors > 255 (4 out of 10 `0x0D` blocks in `NAV_DB_21708.ISO`), the upper byte of the sector is discarded. Resolving `NAME_PTR` without a pre-scanned lookup table of `0x0D` blocks is impossible.
 > - The record pointed to in `0x0D` links to an administrative `0x0C` parcel node. For UI display, human-readable country names are directly cached in `0x0A`.
 
-### 6.4 Type `0x04` (80,825 blocks) — House Number Range Index ✅ RESOLVED 2026-09-21
+### 6.4 Type `0x04` (80,825 blocks) — per-segment house numbers ✅ VERIFIED on disc 2026-09-28
 
 ```
-+0x08 SECTION_DESCRIPTOR[1] = {0x0010, N}    ; N = record count (varies per block)
-+0x0C SERVICE_DATA = BLOCK_ID of associated 0x00 map tile (4 bytes)
-+0x10 SECTION_0: N records of 8 bytes = 4 × u16
-      [f0 f1 f2 f3]  sentinel = 0x7FFF ("no houses on this side")
++0x08 SECTION_DESCRIPTOR[1] = {0x0010, N}   ; N = SECTION_4 count of the linked tile
++0x0C BLOCK_ID of the linked type 0x00 tile
++0x10 SECTION_0: N records of 10 bytes = 5 × u16
+      [f0 f1 f2 f3 f4]   sentinel 0x7FFF = no number
 ```
 
-**Field semantics** (verified from rpmod.asm subroutine `0x014134`):
+Checked on CD-ID 21708 (all 80,114 `CF=2` and 711 `CF=0` blocks; `scripts/routing/check_04_house_numbers.py`):
 
-| Field | Meaning |
+| Check | Result |
 |---|---|
-| `f0` | House number range start, Street Side A |
-| `f2` | House number range end, Street Side A |
-| `f1` | House number range start, Street Side B |
-| `f3` | House number range end, Street Side B |
+| `+0x0C` is the `BLOCK_ID` (sector and length) of a type `0x00` tile | 80,825 / 80,825; no tile has two `0x04` blocks. The other 10,931 `0x00` tiles have none |
+| Record `i` belongs to SECTION_4 segment `i` of that tile | record count = tile e4 count, 200 / 200 tiles sampled |
+| `(f0, f2)` and `(f1, f3)` are the two sides of the segment | a side is either both `0x7FFF` or both set; same parity within a side 94%, opposite parity between the sides 84% (`f4` = 2 accounts for the exceptions below) |
+| `f4` = numbering scheme | 0: no numbers (22,793,560 records, all empty); 2: odd/even split, one parity per side (15,059,361 with numbers, 99.8% single parity per side); 1: mixed, a side runs through both parities (1,440,795 of 2,097,923 have mixed parity within a side) |
+| `0x0E` S2 even/odd ranges (§6.3.1) = envelope of the `0x04` ranges of the linked SECTION_4 run | 29,140 / 29,496 links (98.8%, 60 `0x0E` blocks); a scheme-1 side contributes both parities of its interval. The rest differ at one end of a mixed-scheme run |
 
-- Side A and Side B correspond to the two sides of the street segment.
-- `f0` and `f2` always share the same parity (both odd, or both even); same for `f1`/`f3`.
-- `btst #$0` on the query house number selects which parity side to search.
-- Fill-in rule: if `f0 = 0x7FFF` → `f0 := f2`; if `f2 = 0x7FFF` → `f2 := f0` (symmetric default); same for `f1`/`f3`.
-- Range check: `min(f0,f2) ≤ query ≤ max(f0,f2)` → returns byte offset of the matched street segment record in the associated `0x00` primary block.
+So `0x04` is the fine-grained data (numbers at each end of each side of each segment) and `0x0E`
+S2 is a per-link summary of it, used to pick the street run from the address search. Not
+checked: which side is left or right of the segment direction, and whether `f0`/`f1` belong to
+the start node and `f2`/`f3` to the end node.
 
-**Firmware evidence:**
-- `rpmod.asm` factory-default subroutine `0x01af8a`, line 31577: `move.w #$8, -$7e7a(a6)` — record size = 8 bytes.
-- Subroutine `0x014134` (lines 22792–22952): full range-lookup implementation; parity check at `0x014226`; fill-in at lines 22840–22859; min/max at 22882–22895; range test at 22937–22952.
-- Wrapper `0x013272` (line 21640): copies house-number query from `$42(a7)` → local struct offset `$1e` (`0x01329c`), then calls `0x01456c` → `0x014658` → `bsr $14134`.
-- Empirical check: all high-range field values sampled from sector 5781092 (95, 103, 105, 109, 111, 113) are ODD integers — consistent with one side of an odd-numbered street.
-
-**Linkage**: each `0x04` block is linked to its parent `0x00` map-tile block via `SERVICE_DATA` at `+0x0C`. The routing engine (`rpmod`) uses this block to resolve a house-number query to the byte offset of the street segment record inside the map tile.
+**CC-93 firmware (hint, not the DVD reader).** `rpmod` sets the record size with
+`move.w #$8, -$7e7a(a6)` (factory-default subroutine `0x01af8a`, line 31577), i.e. 8-byte
+records with four fields: the DVD format has a fifth field. Its lookup, subroutine
+`0x014134` (lines 22792–22952), matches the side pairing above: `btst #$0` on the query
+number picks a side (`0x014226`); fill-in `f0 := f2` if `f0 = 0x7FFF` and vice versa, same for
+`f1`/`f3` (lines 22840–22859); range test `min ≤ query ≤ max` (lines 22882–22952), returning
+the offset of the matching segment in the linked `0x00` tile. Caller chain: `0x013272`
+(line 21640) copies the query from `$42(a7)` to local `$1e`, then `0x01456c` → `0x014658` →
+`bsr $14134`. The earlier reading of this block as "160 records of 10 bytes, meaning unknown"
+(blueprint §6.4) had the right size; 160 was one block's count.
 
 ### 6.5 Type `0x06` (2,688 blocks) — POI
 

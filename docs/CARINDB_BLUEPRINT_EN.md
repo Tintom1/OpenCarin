@@ -761,18 +761,21 @@ lose sync at S2 (78% valid tile links, 15% valid house-number pairs); with 15 bi
 check out 100% on CD-IDs 21708 and 21734, and the CDs stay at 100% with 13.
 `decode_s2_coords` should not be used as geometry.
 
-### 6.4 Type `0x04` (80,825 blocks) — 160-Entry Table
+### 6.4 Type `0x04` (80,825 blocks) — per-segment house numbers
 
 ```
-+0x08 SECTION_DESCRIPTOR[1] = {0x0010, 160}
-+0x0C SERVICE_DATA (4 bytes)
-+0x10 SECTION_0: 160 records of 10 bytes = 5 x u16
-      sentinel value "undefined" = 0x7FFF
++0x08 SECTION_DESCRIPTOR[1] = {0x0010, N}   ; N = SECTION_4 count of the linked tile
++0x0C BLOCK_ID of the linked type 0x00 tile
++0x10 SECTION_0: N records of 10 bytes = 5 x u16  [f0 f1 f2 f3 f4]
+      sentinel 0x7FFF = no number
 ```
-The first sampled block has 22 records all set to `7FFF 7FFF 7FFF 7FFF 0000` followed by
-small values (`000B 000E 000D 0010 0002`). Size and sentinel are verified;
-**the meaning of the 5 fields is UNKNOWN** (candidates: turn cost matrix / road
-classes, unconfirmed).
+One record per SECTION_4 road segment of the linked `0x00` tile (80,825 / 80,825 blocks
+link to a tile; count = tile e4 count, 200 / 200). `(f0, f2)` and `(f1, f3)` are the two
+sides of the segment; `f4` is the numbering scheme (0 none, 1 mixed parity, 2 odd/even
+split). The `0x0E` S2 even/odd ranges are the envelope of these ranges over the linked
+segment run (98.8% of 29,496 links). Verified on CD-ID 21708 on 2026-09-28; details and the
+CC-93 lookup routine in [`carindb/03-road-network.md`](carindb/03-road-network.md) §6.4.
+(Earlier text here: "160 records of 10 bytes, meaning UNKNOWN"; 160 was one block's count.)
 
 ### 6.5 Type `0x06` (2,688 blocks) — POI
 
@@ -1747,5 +1750,5 @@ python3 scripts/analyze_codec.py --type 0x1E --count 1
 | 6 | Georeferencing of parcels `0x0C`/`0x0E`/`0x10` (via `0x0D`/`0x0F`/`0x11`) | ✅ **RESOLVED** — `find_parcel(vol, X, Y) → sector` oracle 10/10 PASS 2026-09-19. Spatial index built from S2 `x_anc`/`y_anc`; cached in `dataset/parcel_index.npz`. **Key**: `0x0D`/`0x0F`/`0x11` are TEXT address-lookup indices (ASCII street/country codes → parcel record ranges), NOT geographic R-trees. See `scripts/find_parcel.py`. | — |
 | 7 | Mapping `BLOCK_TYPE → section_type[]` | not present in data | 🟠 high |
 | 8 | Resolution of `NAME_PTR` high16 (country table) | 6 unidentified segments | 🟡 medium |
-| 9 | Order/role of the 5 `u16` in type `0x04` | UNKNOWN | 🟡 medium |
+| 9 | Order/role of the 5 `u16` in type `0x04` | ✅ **RESOLVED 2026-09-28** — per-segment house numbers of the linked `0x00` tile: two sides `(f0,f2)`/`(f1,f3)`, `f4` = scheme; `0x0E` S2 ranges are their envelope (98.8%). Open: left/right and start/end orientation. See §6.4 | 🟢 low |
 | 10 | Block checksum / CRC | **none found** | 🟢 no risk |

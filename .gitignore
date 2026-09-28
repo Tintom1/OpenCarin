@@ -118,3 +118,4 @@ archive/
 
 # Rust build artifacts
 carindb-rs/target/
+graphify-out/

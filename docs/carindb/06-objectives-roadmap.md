@@ -45,7 +45,7 @@ Every block is readable except one group:
 |---|---|---|---|
 | `0x00` | street-level tile: geometry + routable graph + names | ✅ S2, S4 (incl. `+0x18`), S5, S6, S7, S9–S14 · ❓ S0, S1, S3 | `02-geo.md` §8.3, `03-road-network.md` §6.6–6.7 |
 | `0x01`–`0x03` | coarser levels of the same graph; S8 links a tile to the next level down | ✅ | `03-road-network.md` §6.7 |
-| `0x04` | house-number range index | ✅ layout · ❓ relation to the `0x0E` S2 house numbers | `03-road-network.md` §6.4 |
+| `0x04` | per-segment house numbers of the linked `0x00` tile (one 10-byte record per S4 segment); `0x0E` S2 ranges are their envelope | ✅ · ❓ left/right and start/end orientation | `03-road-network.md` §6.4 |
 | `0x06` | POI spatial index → `0x10` | ✅ | `02-geo.md` §8.1 |
 | `0x07` → `0x08` → `0x09` | country info (§4.2) + spatial index: layer directory, quadtree grid, cell → tiles | ✅ (100% of tiles reached on 21708) · 🟡 `0x09` internals, layer parameters | `02-geo.md` §7.3 |
 | `0x0A` | country table (NAME_PTR, DEFAULT_SPEED) | ✅ | `01-architecture.md` §4.4 |
@@ -90,7 +90,10 @@ Every block is readable except one group:
 4. **Retire superseded code**: `decode_s2_links` (tile link, segment run, house numbers) replaces
    `decode_s2_coords` (kept, marked superseded); remove it with `oracle_s2_coords.py` and any
    script that treats `0x0E` as geometry.
-5. **`0x04` vs `0x0E` S2 house numbers**: same data twice, or an index over it?
+5. ~~**`0x04` vs `0x0E` S2 house numbers**~~ Done 2026-09-28 (`03-road-network.md` §6.4):
+   `0x04` holds the numbers per segment and side, `0x0E` S2 their envelope per linked run
+   (98.8%, `scripts/routing/check_04_house_numbers.py`). Left open: which side is left/right
+   and whether `f0`/`f1` are the start-node numbers (needs segment geometry).
 
 ### B. RoadRunner firmware (`bsw2`)
 6. **Route cost**: find the readers of speed (`+0x0A & 0x1F`) and the edge fields from
