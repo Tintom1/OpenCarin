@@ -571,7 +571,7 @@ when the lookup fails. No reader of the other fields was found; they may be used
 vehicle registration code "IRL" for Ireland, not "ie". The firmware maps the country to that
 code itself, probably from `COUNTRY_ID`. CD-ID 2952 has no code field at all.
 
-#### 4.4.1 `0x0D` and `0x11`: name tries
+#### 4.4.1 `0x0D`, `0x0F` and `0x11`: name tries
 
 Both are letter tries in the same 12-byte record format as `0x0B` (§4.3):
 `u32 BLOCK_ID | u8 letter | u8 leaf | u16 offset | u16 count | u16 flags (0)`.
@@ -586,12 +586,35 @@ still follow.
 |---|---|---|---|
 | `0x0D` city names | `0x0A` record `+0x00` (one per country) | `0x0C` city records (8 B, name offset first) | every leaf name starts with its prefix: United Kingdom 35,168, Ireland 62,964 (CD-ID 21594); England 26,692, Scotland 2,921 (CD-ID 2952) |
 | `0x11` POI names | `0x0A` section 3 (one per country and category) | `0x10` POI index records (8 B: name offset, type, locality, detail pointer) | 302 / 302 (CD-ID 21594), 187 / 187 (CD-ID 2952) |
+| `0x0F` road names | `0x0C` city record `+0x00` (one per city, below) | `0x0E` section 0 street records (8 B, §6.3) | 18,848 / 18,861 names under their prefix on 200 cities (CD-ID 21594; the 13 are one Irish range where `i` and `í` sort together); 30,437 / 30,437 on 300 cities (CD-ID 2952) |
 
 The `0x11` categories are the POIs you can search by name: 20 attractions (Guinness Storehouse,
 Madame Tussauds), 32 museums, 35 stadiums, 37 landmarks (Big Ben, Newgrange), 38 theme parks,
 39 national parks, 49 a museum (CD-ID 2952 only), 52 airports (with IATA codes such as `dub`
 and `ork` as alias records, flag `0x0100`), 53 ferry terminals and the Channel Tunnel,
 58 border crossings.
+
+**`0x0C` city records** (`local/tools/city0c.py FILE SECTOR`). Section 0 holds 8-byte entries in
+alphabetical order: `u16 name offset, u16 flags, u16 post-town offset (0 = none), u16 pointer
+into section 1` (e.g. `abbas itchen` → `winchester`). Section 1 records are 24 bytes on
+DB-REL 34 and 20 on DB-REL 22:
+
+```
++0x00 u32 BLOCK_ID of a 0x0F block \
++0x04 u16 offset                     |  root of the city's road-name trie
++0x06 u16 count                     /
++0x08 u16 offset into section 3, +0x0A u16 count: the city's own 0x11 POI tries
+      (12-byte records like 0x0A section 3; categories 48, 56, 57 seen)
++0x0C u32 BLOCK_ID of a 0x00 tile, +0x10 u16 offset in it (CD-ID 21594; probably the
+      city centre, not checked)
+```
+Section 5 holds variable-length brand lists (`renault`, `bp`, `shell`, `tesco`) with `0x11`
+pointers; not decoded.
+
+A street can be listed under more than one city, as separate `0x0E` records reached from
+separate tries. On CD-ID 2952 a street on the border of two towns sits in a packed `0x0E` block
+under one town and in a plain one under the neighbouring larger town. Editing one copy leaves
+the other list unchanged.
 
 ### 4.5 `CARINET` — Event Text Catalog (independent block space)
 
