@@ -3,7 +3,7 @@ import struct
 from .constants import *
 from .core import Cf1Error, SECTOR, Cf1Context, bits_needed
 from .decoder_00 import decode_type00
-from .decoder_0e import decode_type0E, encode_type0E, decode_s2_coords
+from .decoder_0e import decode_type0E, encode_type0E, decode_s2_coords, decode_s2_links
 from .decoder_14 import decode_type14_16
 
 DECODERS = {

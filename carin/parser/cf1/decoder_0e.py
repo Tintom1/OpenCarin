@@ -329,6 +329,10 @@ def decode_s2_coords(decoded: bytes, table: dict[int, int],
                      ) -> list[tuple[tuple[int, int], tuple[int, int]] | None]:
     """Ricostruisce le coordinate assolute CARIN per ogni record S2 di un blocco 0x0E.
 
+    SUPERSEDED (2026-09-27, docs/carindb/03-road-network.md §6.3.1): S2 +8..+14
+    are house-number ranges, not coordinate deltas, and +0/+4 is the centre of the
+    linked 0x00 tile. Use decode_s2_links(). Kept for the historical oracle.
+
     Fonte firmware: il decoder pbp+0x41c0 memorizza i delta raw (unsigned) e
     l'ancora; il routing engine applica sign-extension e ancora+delta a query
     time. M_hi è letto da decoded[7] (impostato da decode_block dal pre-header);
@@ -380,3 +384,51 @@ def decode_s2_coords(decoded: bytes, table: dict[int, int],
     return result
 
 
+HOUSE_NUMBER_NONE = 0x7FFF
+
+
+def decode_s2_links(decoded: bytes, table: dict[int, int]) -> list[dict]:
+    """Section 2 records of a decoded 0x0E block (street-name directory).
+
+    Each record links a street entry to a run of road segments in one type 0x00
+    tile, with the house-number ranges of that run (03-road-network.md §6.3.1):
+
+      +0  i32  x, +4 i32 y   centre of the linked 0x00 tile (CARIN units)
+      +8  u16  even lo, +10 even hi, +12 odd lo, +14 odd hi   (0x7FFF pair = none)
+      +16 u32  BLOCK_ID of the 0x00 tile
+      +20 u16  byte offset of the first SECTION_4 record in that tile
+      +22 u16  number of consecutive SECTION_4 records
+
+    Works on CF=1 output (decode_block) and on CF=0/CF=2 payloads (header included).
+    Returns one dict per record: {"tile_center", "tile_block_id", "tile_sector",
+    "tile_length", "s4_offset", "s4_count", "even", "odd"}; "even"/"odd" are
+    (lo, hi) or None.
+    """
+    base_d = table[T_DESC_BASE]
+    s2_rec = table[T_REC_S2_0E]
+    e2_off, e2_cnt = struct.unpack_from(">HH", decoded, base_d + 8)
+
+    def _range(lo: int, hi: int):
+        if lo == HOUSE_NUMBER_NONE and hi == HOUSE_NUMBER_NONE:
+            return None
+        return lo, hi
+
+    out = []
+    for i in range(e2_cnt):
+        b = e2_off + i * s2_rec
+        if b + 24 > len(decoded):
+            break
+        x, y = struct.unpack_from(">ii", decoded, b)
+        ev_lo, ev_hi, od_lo, od_hi = struct.unpack_from(">4H", decoded, b + 8)
+        bid, s4_off, s4_cnt = struct.unpack_from(">IHH", decoded, b + 16)
+        out.append({
+            "tile_center": (x, y),
+            "tile_block_id": bid,
+            "tile_sector": bid >> 8,
+            "tile_length": bid & 0xFF,
+            "s4_offset": s4_off,
+            "s4_count": s4_cnt,
+            "even": _range(ev_lo, ev_hi),
+            "odd": _range(od_lo, od_hi),
+        })
+    return out

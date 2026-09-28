@@ -84,8 +84,9 @@ Every block is readable except one group:
    without search. *Done =* `+0x18` matches plain-tile statistics on 21708/21734.
 3. **Spatial lookup on `0x07`–`0x09`.** Library module that answers "tiles of layer X at
    (lon, lat)"; replace `find_bbox` (98,304 assumption) and the S2-anchor `find_parcel`.
-4. **Retire superseded code**: `decode_s2_coords`, `oracle_s2_coords.py`, and scripts that treat
-   `0x0E` as geometry.
+4. **Retire superseded code**: `decode_s2_links` (tile link, segment run, house numbers) replaces
+   `decode_s2_coords` (kept, marked superseded); remove it with `oracle_s2_coords.py` and any
+   script that treats `0x0E` as geometry.
 5. **`0x04` vs `0x0E` S2 house numbers**: same data twice, or an index over it?
 
 ### B. RoadRunner firmware (`bsw2`)

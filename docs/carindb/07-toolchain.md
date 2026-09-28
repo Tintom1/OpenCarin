@@ -14,7 +14,7 @@
 | `carin/parser/iso.py` | ISO 9660 reader (no mount), `CarinVolume` over `DB_0+DB_1` (DVD, 512-byte unit) or a single `/carindb` (CD, 2048-byte unit), `calibrate()` (detects `subrel`), `CarinBlock`, `find_bbox` (98,304 grid: DVD only), `to_wgs84`/`to_carin` |
 | `carin/parser/calibration.py` | `GeographicCalibrator` (Levenberg-Marquardt + grid search) |
 | `carin/parser/compression.py` | `CompressionAnalyzer`, `LzssSweep`, `sweep_lzss`, `decode_lzw`, `decode_lz4_block`, `entropy`, `plain_prefix`, `score_output` |
-| `carin/parser/cf1/` | **CF=1 bit-packing codec** — `decode_block(raw, table, dbrel, subrel, sector_size)` for `0x00`, `0x0E`, `0x14`–`0x16`; `encode_type0E`; `probe.py` (per-disc `subrel` detection); parameterized by `RECORD_SIZE_TABLE` — see [`04-cf1-codec.md`](04-cf1-codec.md) |
+| `carin/parser/cf1/` | **CF=1 bit-packing codec** — `decode_block(raw, table, dbrel, subrel, sector_size)` for `0x00`, `0x0E`, `0x14`–`0x16`; `encode_type0E`; `decode_s2_links` (`0x0E` S2 → `0x00` tile, segment run, house numbers); `probe.py` (per-disc `subrel` detection); parameterized by `RECORD_SIZE_TABLE` — see [`04-cf1-codec.md`](04-cf1-codec.md) |
 | `carin/parser/geometry.py` | `road_segments(data, table)`: WGS84 road segments of a decoded `0x00` tile with name, locality, display class; `tile_frame`, `header_bounds` — see [`02-geo.md`](02-geo.md) §8.3 |
 
 ## Analysis & extraction scripts (`scripts/`)

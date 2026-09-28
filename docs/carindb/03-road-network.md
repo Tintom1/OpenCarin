@@ -224,7 +224,7 @@ reading above that the router never requests `0x00`.
 (see `04-cf1-codec.md` §9.11.7). Read as 13 bits, the `CF=1` `0x0E` blocks of CD-ID 21708
 lose sync at S2 (78% valid tile links, 15% valid house-number pairs); with 15 bits they
 check out 100% on CD-IDs 21708 and 21734, and the CDs stay at 100% with 13.
-`decode_s2_coords` should not be used as geometry.
+`decode_s2_coords` should not be used as geometry; read S2 with `decode_s2_links` (`carin.parser.cf1`).
 
 **S2 coordinate reconstruction** (superseded 2026-09-27: `+8..+14` are house numbers, so
 `anchor + delta` is not a position; kept for reference):

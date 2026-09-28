@@ -2,6 +2,11 @@
 Builds and queries a spatial index from S2 anchors.
 
 Allows O(1) geographic lookups to map an arbitrary lon/lat coordinate to the exact 0x0E road parcel sector.
+
+Note (2026-09-28): the S2 "anchors" are the centres of the 0x00 tiles each 0x0E
+record links to, so this index finds 0x0E blocks that reference tiles near a point.
+The disc's own spatial index is 0x07 -> 0x08 -> 0x09 (docs/carindb/02-geo.md §7.3),
+which does not cover 0x0E. See roadmap item A3.
 """
 
 from __future__ import annotations
