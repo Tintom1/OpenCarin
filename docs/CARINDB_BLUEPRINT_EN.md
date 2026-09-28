@@ -529,6 +529,18 @@ the old name in the other city's list and crashed the unit when it was selected.
 be edited without re-encoding by swapping letters whose text codes have the same total bit length
 (`local/tools/textsplice.py`).
 
+A rename that moves the street to another place in the list also works, once the list is re-sorted
+and the city's `0x0F` leaves are rebuilt. The rule the disc's compiler used reproduces every
+city's `0x0F` trie on both CDs (49,310 and 95,543 cities; `local/tools/triebuild.py`):
+
+1. At each level, group the sorted names by their next letter, ignoring accents (`@` when the
+   name ends there). The lists are sorted the same way.
+2. A group whose records all sit in one target block becomes a leaf. A group spanning several
+   blocks is split again on the following letter.
+3. A group gets one trie record per letter that occurs in it, all pointing at the whole group.
+   `ä`, `ö` and `ü` count as letters in their own right. Any other accented letter also brings
+   its plain letter, which comes first (`á` alone gives `a`, `á`).
+
 ### 4.5 `CARINET` — Event Text Catalog (independent block space)
 
 ```
