@@ -328,7 +328,7 @@ Bbox at offset `0x44`. Source: `docs/fw/mips_decode_type00.asm`,
 | S1 (`e1`) | `0x40` | 10 B | `dbq/pbp_clean.c`: Bounding Box / Delta limits |
 | S2 (`e2`) | `0x40` | 10 B | (same T-entry, shared section_type) |
 | S3 (`e3`) | `0x12` | 4 B | MIPS `T[0x12]`, RST[0x12]=4, CF=0 empirical |
-| S4 (`e4`) | `0x08` | 32 B | BSP/QuadTree Index (Child ptrs + S7 ptrs) |
+| S4 (`e4`) | `0x08` | 32 B | road segments: nodes, next-segment-at-node pointers, shape pointer, length, bearings, class, one-way (see `03-road-network.md` §6.7) |
 | S5 (`e5`) | `0x10` | 8 B | MIPS `T[0x10]`, RST[0x10]=8, CF=0 empirical |
 | S6 (`e6`) | `0x06` | 16 B | MIPS `T[0x06]`, RST[0x06]=16, CF=0 empirical |
 | S7 (`e7`) | `0x0c` | 6 B | Turtle Graphics Geometry (X,Y,Pen Flags) |

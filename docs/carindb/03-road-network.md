@@ -95,6 +95,7 @@ Verified on sample:
   **Firmware evidence — complete static analysis of rpmod (2026-09-20):**
   - `can_traverse` (`rpmod+$4360`): reads `block[D+0x10]` / `block[D+0x11]`, always `0x00` for
     `0x0E` CF=1 blocks → always returns 1 (traversable). FLAGS NOT READ.
+    (**Correction 2026-09-28:** `+0x10`/`+0x11` are read from the segment record whose offset is the arc's `+6`, i.e. a `0x00`-style segment, not a `0x0E` record: it rejects road class 6. See §6.7.)
   - `rpmod+$6eae` (cost function for `0x0E`): calls `jsr -$7240(a6)` to retrieve an attribute list,
     searches for `element[1]==5`, returns `element[2] × 0x3C00`. FLAGS NOT READ. (The earlier note
     "arc value × 0x3C00" incorrectly attributed the multiplied value to FLAGS; it is `element[2]`
@@ -349,6 +350,8 @@ Full POI record layout → [`02-geo.md`](02-geo.md) §8.1.
 The `0x00` block holds the precise geometries for rendering the map, but it does NOT store them as a flat array of contiguous polylines.
 
 **Coordinate Scaling:**\nJust like `0x06` POI blocks, `0x00` blocks use a fixed scale multiplier of `64.0`. (Previous theories about dynamic scaling via `ctx.widths` were incorrect; those bytes dictate bitstream extraction widths, not geometric scale).\n
+> **Correction (2026-09-28):** `+0x06` / `+0x08` are not tree children but the next segment at the start / end node, and section 4 is the road graph; see §6.7.
+
 **Section 4 (Spatial Tree):**
 S4 is a **BSP/QuadTree**, not a flat line array. Traversing it sequentially creates massive zigzag artifacts.
 - `+0x04` (u16): Pointer/index into Section 7 (starts a coordinate sequence).
@@ -375,3 +378,66 @@ Values previously thought to be internal section IDs (like  x24,  x28,  x2A,  x2
 - E.g.,  x28 is 8 + 8 * 4 = 40, which is the exact byte offset of the e8 descriptor's offset field.  x2A is the count field.
 - The C firmware explicitly does *(ushort *)(in_D0 + 0x28) to read the array pointer, meaning the layout of  x00 is rigidly hardcoded, relying on these structural header offsets rather than runtime switch-cases.
 
+### 6.7 Types `0x00`–`0x03` — Road Graph (routing) (2026-09-28)
+
+Types `0x00`–`0x03` form a routable road graph. `0x00` is the street level and `0x01`–`0x03` are coarser levels of the same network. Everything below was checked on disc data from CD-IDs 2952, 21594, 21708 and 21734 (sample sizes given per row). Rows marked **FW** are also confirmed in the Philips CARIN CC-93 firmware (`dbq/rpmod.asm`, `(c) PHILIPS,Eindhoven CARIN CC-93 system`, 1993, OS-9/68K, taken from a BMW update disc), where the route planner reads these fields from segment records at the same offsets. The CC-93 is a sibling of the units that read these discs, not their own firmware (e.g. the Renault CNI1's firmware is not in the repo), so **FW** means "an older CARiN route planner reads the field this way".
+
+**Segment record (section 4, record `T[0x08]`: 32 B on DB-REL 34, 30 B on DB-REL 22):**
+
+| Offset | Field | Evidence |
+|---|---|---|
+| `+0x00` / `+0x02` | start / end node: in-block offset of a section 5 node or a section 6 edge node | 100% on all four discs (e.g. 19,054 / 19,054 ends on CD-ID 21594). **FW**: `rpmod:007d18` picks `+0x00` or `+0x02` from the arc's direction flag |
+| `+0x04` | first shape point in section 7 | geometry vs OSM (`02-geo.md`) |
+| `+0x06` / `+0x08` | **next segment at the start / end node** (0 = none), not BSP children | the target always shares the node (12,850 pointers, CD-ID 21594). Following them visits every segment at that node: 11,611 / 11,622 (CD-ID 21594), 9,411 / 9,414 (2952), 5,733 / 5,734 (21708), 5,701 / 5,704 (21734) |
+| `+0x0A` bits 0–4 | **speed category**, roughly km/h ÷ 4 | vs OSM `maxspeed`, name/position-matched (CD-ID 21594, Dublin + Leeds, 45,080 segments; 3 rural areas, 1,236): 20 mph → 5, 30 mph / 50 km/h → 11, 40 mph / 60 km/h → 16, 80 km/h → 22, 60 mph / 100 km/h → 26, 70 mph → 31; footways and pedestrian streets 2, minor/service roads 5. Bits 5–6 are always 0. Not found in the firmware yet |
+| `+0x0A` bit 7 | **built-up area** | same value as `+0x1D` bit 7 on all 63,922 segments sampled. Its share falls from 1.00 on the smallest (densest) tiles to 0.12 on large rural tiles; in rural areas 81% of 30 mph roads have it set and ~90% of 60 mph roads have it clear |
+| `+0x0B & 0x0F` | **form of way**: 0 motorway; 1 on-slip, 2 off-slip, 3 motorway-to-motorway link; 4 dual carriageway (non-motorway); 8, 9, 0xA the same three slip roles at non-motorway junctions; 0xB, 0xC single carriageway (0xB mostly on main roads) | Slip roles from the graph (CD-ID 21594, 1,510 one-way slip segments in 236 tiles): form 1 never starts at a motorway and is the only one that ends at one from a road; form 2 starts at the motorway and ends on a road; form 3 runs slip → slip or joins two motorways. vs OSM (Dublin + Leeds): motorway 0 (88%) / 1 (8%); `motorway_link` 1 (57%), 0, 2; one-way trunk 4 (77%), one-way primary 4 (69%); residential 0xC (99%). **FW**: `rpmod:0043ca` returns false for exactly 1, 2, 3, 8, 9, 0xA (slip roads); `0056c0` stores that as a flag used when choosing which segment to snap a position to. Also copied to edge `+0x28` |
+| `+0x0B` bits 4–5 | **direction restriction**: 0 two-way, 1 (bit 4) passable only along the stored direction, 2 (bit 5) only against it, 3 closed to vehicles | vs OSM `oneway`, name/position-matched, rate the bits agree with OSM: 91 / 76 / 82% (CD-ID 21594, Dublin, 2,263 segments), 91 / 75 / 81% (CD-ID 21708), 94 / 50 / 55% (CD-ID 2952, York, 27 years older). Both bits = pedestrian streets (Grafton St, Henry St). **FW**: `rpmod:011ad6` does `(+0x0B & 0x30) >> 4` and switches on it exactly so; `011b42` tests `== 3` |
+| `+0x0B` bit 6 | **toll road** | set on 89% of OSM `toll=yes` segments and 0% of the rest (44 segments: M50, M1) |
+| `+0x0C` | **length in metres** (u16) | correlation 1.000 with the shape length, median 0.999 m per unit (5,952 segments). **FW**: `rpmod:007d88` multiplies it by 100 into the edge record |
+| `+0x0E` / `+0x0F` | **compass bearing** leaving the start node / leaving the end node back into the segment, in 1/256 turn (0 = north, clockwise) | median error 1.1°, 95–96% within 10° (4,512 segments). **FW**: `rpmod:007dd0` picks one by direction and scales by `0x8CA0 >> 8` (36,000 / 256, i.e. hundredths of a degree) |
+| `+0x10 & 0x0F` | **road class**, 0 (motorway/trunk) … 4–5 (residential) … 6 (pedestrian, service, private) | vs OSM `highway` (Dublin). **FW**: copied into the edge record at `007d9e`; `can_traverse` (`rpmod:004360`) rejects class 6 |
+| `+0x10` bits 4–6 | **class 6 subtype**, 0 on every other class: 1 restricted road (most private/service/estate roads), 3 private or permissive, 5 pedestrian street or footway, 6 pedestrian street closed to vehicles (`access=no`); 2 and 4 rare | vs OSM `highway`/`access` on 1,418 class 6 segments (Dublin + Leeds). **FW** compares it with 5 (not traced further) |
+| `+0x11 & 0x0F` | **junction type**: 0 ordinary; 6 roundabout; 9 short connector inside a junction (median 27 m, on every road type, including slip lanes); 2 and 5 rare; 3 appears only on the DVD (see **FW**) | 6: 91–100% of OSM roundabout segments on residential/trunk roads; 9: 1,398 segments. **FW**: `can_traverse` (`004360`) rejects 3 and 4 unless the high nibble is 4; `004432` groups 0, 2 and 9 against 5 and 6; `0056c0` prefers segments ≥ 20 m with value 0 when snapping a position |
+| `+0x11 >> 4` | 2 on every CD segment; 1 and 4 occur with low nibble 3 on the DVD (`0x13`, `0x43`) | unexplained; `0x43` is the case `can_traverse` lets through |
+| `+0x12` → section 10 | start of this segment's **forbidden turns** (see below) | monotone in 108 / 108 tiles |
+| `+0x14` → section 12 | TMC location references (DVD only, see below) | |
+| `+0x16` → section 13 | **toll points** (DB-REL 34; see below) | every segment of a tile holds the same offset when the section is empty |
+| `+0x18` | u16, high byte only (`0x0100`–`0x0400`, `0x1000`). Values: 1, 2, 3 = the segment's slip role, repeating `+0x0B` form 1/8, 2/9, 3/0xA; 4 = about a third of class 6 subtype 1 roads (mostly tracks, service roads and farm lanes in OSM; meaning unclear); `0x10` = rare, on main roads, sometimes combined with a slip role (`0x11`, `0x13`). Plain (`CF=0`) tiles store it in the record. **Packed tiles store it in an extra pass after pass `0x17`**, which neither `decoder_00.py` nor any firmware we have (Mk3 0103–0127, RR 0101–0103) reads; see "Packed tiles: the `+0x18` pass" below | plain, CD-ID 21594, all 1,114 plain `0x00` tiles: 236 / 236 tiles with slip roads mark every slip segment; 613 / 1,998 subtype-1 class 6 segments carry 4. Packed: the same values in 873 / 1,000 sampled tiles. DVD 21708: non-zero on 147 of 30,264 sampled segments |
+| `+T[0x09]` → section 2 | road name and locality | `03-road-network.md` §6.3.1 |
+| `+T[0x09]+2` hi (`+0x1C`) | bit 4 always set; **bit 3 = bridge**; bits 1–2 (value `0x16`) on stretches of motorway/trunk/main roads; bit 0 on a few tunnels (`0x1D`) | bit 3: 80% of OSM `bridge` segments vs 1% of the rest. `0x16`: 41% of motorway segments (M621, M50, Leeds Inner Ring Road, M1), 6% of trunk; meaning unknown |
+| `+T[0x09]+3` (`+0x1D`) | bit 7 = built-up area (same as `+0x0A` bit 7); bits 1–2 ≈ **width / lane category**: 0 one-lane one-way, 1 ordinary road, 2 wide one-way (motorway carriageway), 3 wide two-way (4+ lanes); bit 0 unexplained (mostly set on residential streets) | vs OSM `lanes`: one-way 1 lane → 0 (63%); two-way 1–2 lanes → 1 (92–94%); motorway → 2 (89%); two-way 5 lanes → 3 (61%). Coarse, not a lane count |
+| `+T[0x09]+4` → section 11 | **signposts** (see below) | |
+
+**Packed tiles: the `+0x18` pass (DB-REL 34).** The packed `0x00` stream does not end after pass `0x17`. Three parts follow:
+1. A head of unknown content: median 18 bits, up to about 900. It is at least 2 bits (`00`) and never 3, 4 or 7 bits; every head of 5 bits or more ends in `000`. It sits where the Mk3 reads its two optional text-blob flags, but it can't be those: heads as short as 5 bits start with a 1, and a text blob needs at least 2 × `PTRBITS` bits.
+2. One record per section 4 segment: a flag bit, followed by a new u16 for `+0x18` when the flag is set. When the flag is clear, the segment keeps the previous segment's value. The first segment always has the flag set.
+3. A single 1 bit, then zero padding to the end of the block.
+
+On CD-ID 21594 the pass was located in 873 of 1,000 random packed tiles by search: its start is the first position where the pass ends on the last set bit, gives only known values and marks exactly the slip roads. Only the slip roads were used for the fit. The other values came out on their own and match the plain tiles: `0x0400` on 1,406 class 6 subtype 1 segments and nowhere else, and `0x1000` on a few class 1 and 2 roads. Most of the tiles that don't fit have many segments with form 1 but no slip role (in one tile, all 203 segments); a few have a zero run shorter than the segment count. Both are unexplained. This pass accounts for most of the ~20 B of unexplained data per packed tile. It fits the format's backwards compatibility (§9.11.6 of the blueprint): each DB-REL appends passes and older readers stop early, so the firmware we have never reaches it. Until the head is decoded, a decoder can't find the start of the pass without the search in `local/tools/pass18.py`. CD-ID 2952 (DB-REL 22) has no `+0x18` and no data after pass `0x15`.
+
+On DB-REL 22 (30 B records) there is no `+0x16` section 13 pointer: `+0x14` is the last section pointer, `+0x16` is the always-zero u16, `T[0x09]` = `0x18`, and the flags u16 is at `+0x1A`. On CD-ID 2952 (100 tiles, 15,186 segments) the same fields show the same patterns: class 6 subtypes, `+0x11` 0/5/6/9, the `+0x1A` hi byte 0x10/0x18/0x90, low byte 0x80–0x87. The speed values differ slightly (mostly 13, 17, 22, 31 and 2 instead of 11, 16, 22, 31 and 2). These were not matched to OSM on that disc. Tools: `local/tools/seg4.py` (per-class survey), `seg4osm.py` (OSM matching), `seg4study.py` and `seg4bits.py` (cross-tabs).
+
+**Nodes and tiles:**
+- Section 5 (`T[0x10]` = 8 B): nodes inside the tile, `(u, v, …)` in the tile frame.
+- Section 6 (`T[0x06]` = 16 B): **tile-edge nodes**. `(u, v)`, then `+8 u32 BLOCK_ID` of the neighbouring tile of the same type and `+12 u16` byte offset of its twin record. The twin points back and sits at the same absolute position: 1,574 / 1,574 (`0x00`), 755 (`0x03`), 619 (`0x02`), 373 (`0x01`) on CD-ID 21594; 778 / 778 and 818 / 818 on CD-IDs 21708 / 21734; 919 / 937 on CD-ID 2952.
+- Section 9 (`T[0x0F]` = 8 B): the neighbouring tiles.
+
+**Levels.** Every node of `0x01`, `0x02` and `0x03` lies exactly on a `0x00` node (100% on CD-ID 21594). Coarse segments pass through street junctions without stopping (32% of `0x03`, 37% of `0x02`, 46% of `0x01` segments), so each coarser level is the main-road network with minor junctions merged. **Section 8** of a coarse tile links it to the next level down (`0x01` → `0x02` → `0x03` → `0x00`; empty in `0x00`). It holds `gw × gh` `u32` `BLOCK_ID`s, one per cell of a grid over the tile, numbered column-major (`cx · gh + cy`), with the grid aspect equal to the tile aspect. A coarse node is found one level down by position: its cell gives the tile, and the node with identical coordinates is its twin. This resolved every node with a twin (CD-ID 21594: 869, 1,428 and 569 nodes; CD-ID 2952: 1,101, 964 and 668, with 55 nodes lacking a twin).
+
+**Section 10 (`T[0x14]` = 8 B): forbidden turns.** A segment's entries run from its `+0x12` to the next segment's. Each entry is `u32 BLOCK_ID` (own tile), `u16` offset of a target segment and `u16` flag:
+- flag 0: the target meets the owner at its start node (548 / 562);
+- flag 1: at its end node (514 / 542);
+- flags 2 and 3 are rare and not understood.
+
+In central Dublin (CD-ID 21594), 55% of these junctions lie within 15 m of an OSM turn restriction, against 10% for random junctions, and 57% of OSM restriction vias have an entry within 20 m. Using the bearings to classify each entry's turn: at OSM `no_right_turn` junctions 33 of 38 entries are right turns; at `only_straight_on` junctions all listed turns are left or right; at `only_right_turn` junctions they are left turns. Not yet found in the firmware.
+
+**Section 11 (`T[0x13]` = 6 B): signposts.** Pointed to by `+T[0x09]+4`. Each entry is `u16` destination text, `u16` route-number text or 0, and a `u16` flag 0/1. 984 of 985 destination pointers resolve to strings, e.g. `norwich` / `a11`, `bury st. edmunds((a14))`, `london stansted airport`, `((m11))`. Used by 10–11% of class 0–1 segments, ~0% of residential ones (CD-ID 21594).
+
+**Section 12 (DVD only): TMC.** Pointed to by `+0x14`: whole triples of u16 `(direction 6/7/8, location code, flags)`. Used by 95% of class 0 and 85% of class 1 segments. The codes are consecutive IDs, not pointers, and occur in the DVD-only blocks `0x17` and `0x19`. `0x19` holds TMC location names (`autobahndreieck treptow`, `schönefelder kreuz`). Empty on both CDs.
+
+**Section 13 (DB-REL 34, `+0x16`): toll points.** Entries are 8 B, like section 10: `u32 BLOCK_ID` (always the tile's own), `u16` offset of a segment record, `u16` flag `0x1200` or `0x3200`. They come in pairs, one per flag, on consecutive class 0–2 segments of one road. On CD-ID 21594 they sit in 16 / 247 `0x01`, 23 / 426 `0x02` and 27 / 1,476 `0x03` tiles, and in 1 of 1,114 plain `0x00` tiles (2 of 60 sampled on DVD 21708). Every pair checked lies on a toll point: the Limerick Tunnel, M8 Fermoy, N25 Waterford bridge, M6 Ballinasloe, M7 Portlaoise, M4 Enfield, M3 Dunshaughlin and the Dublin East Link. The two flags are probably the two directions; not verified.
+
+**Section 14 (DB-REL ≥ 23):** `{u16 text offset, u8 length, u8 type}`. Type 0 entries are two-letter name prefixes (`st`, `ki`, `ch`, …), i.e. a name search index.
+
+**Not found:** lane counts or lane arrows. `+0x1D` bits 1–2 give only a coarse width category. The per-segment speed is `+0x0A` bits 0–4; how the route planner turns it into a cost is not traced (upstream's cost function `rpmod:6eae` is the candidate).
