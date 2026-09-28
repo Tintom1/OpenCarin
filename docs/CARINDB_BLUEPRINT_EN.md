@@ -559,12 +559,36 @@ and must not be assumed.
 Verified on sample:
 * `D` is a **pointer to SECTION_1** and advances in steps of 6 (= record size S1): the first
   record has `D = 0x24B8` = exactly the offset of SECTION_1.
-* `A` (0x798C, 0x799A, 0x79B1, …) is a **pointer into SECTION_2**, monotonically non-decreasing.
+* `A` (0x798C, 0x799A, 0x79B1, …) is **not** a pointer into SECTION_2: it points to the
+  record's **street name**, a NUL-terminated Latin-1 string in the text that follows
+  SECTION_2 (it is monotonic because records are alphabetical). See §6.3.2.
+* **Name metadata, from disc data (2026-09-28)**: `FLAGS` and `B` describe the *name*, not
+  the road. Checked on CD-ID 21594 (6,873 S0 records in 25 blocks, each compared with the
+  names of the road segments its S2 records link to) and CD-ID 21708 (300 `CF=2` blocks):
+
+  | Field | Value | Meaning | Evidence (CD-ID 21594) |
+  |---|---|---|---|
+  | `FLAGS` bits 0–1 | 0 | the linked segments' own name | 4,707 / 4,707 exact match |
+  | | 1 | an alternative name for the road (e.g. `muckross road` → segment `n71`, `jellicoe court` → `atlantic wharf`) | 368 + 230, all differ from the segment name |
+  | | 2 | the name in a second language (e.g. `heol y groes` → `cross street`, `an baile beag` → `ballybeg`) | 106 + 127, all differ |
+  | `FLAGS` bit 4 | 1 | a word-reordered form of the name, for search (`east rathcahill` → `rathcahill east`) | 1,335 / 1,335 reordered |
+  | `B` | code | the **language** of the name | see below |
+
+  `B` codes seen on CD-ID 21708: 1 Dutch, 2 English, 3 French, 4 German, 5 Italian,
+  6 Spanish, 7 Swedish, 10 Danish, 11 Catalan, 15 Portuguese, 19 Czech, 21 Russian
+  (transliterated), 255 other (Welsh, Irish, Ukrainian, Basque, Galician). On CD-ID 21594,
+  English names carry 2 and Welsh/Irish names 255. In `CF=1` blocks `B` is read as 3 bits;
+  on the discs tested, packed blocks only carry codes 1–6.
+
+  This supersedes the "access category" reading of bits 0–1 and the "functional class"
+  reading of `B` below; the firmware notes that follow found no routing use of `FLAGS`,
+  which is consistent with it being name metadata.
 * `FLAGS` takes values `0x00, 0x01, 0x02, 0x10, 0x11` → independent bit 4 and bit 0/1
   (candidates: one-way / digitization direction). **UNCONFIRMED**.
 * `B` is `0xFF` in the vast majority of records (sentinel "absent"),
   otherwise small values (`0x05, 0x07, 0x0A, 0x13, 0x15`).
-* `C` is `0x0000` in `0x0E` blocks; in `0x0C` blocks it is an internal pointer
+* `C` is usually `0x0000` in `0x0E` blocks; when non-zero it points to a **locality**
+  string (e.g. `haddington road` → `dublin 4`), see §6.3.2. In `0x0C` blocks it is an internal pointer
   (e.g. `0x989F`, `0x98C6`) to the blob at offset `0x9884` indicated in SERVICE_DATA.
 
 ```python
@@ -593,14 +617,15 @@ PARCEL_S0_FMT = ">HBBHH"        # 8 bytes
 - **Section 1** (Edges/Attributes, `T[0x41]` = 6 bytes — ✅ VERIFIED 2026-09-18):
   - `+0 (u16)`: Pointer to Section 2. `getbits(bits_needed(S2_count)) × T[0x42] + S2_offset`.
   - `+2 (u8)`: If `getbits(1)`==1 → `getbits(bits_needed(S2_count)) + 2`, else `1`.
-  - `+3 (u8)`: `getbits(1)`.
-  - `+4–5`: zero (not decoded).
-- **Section 2** (Geometry, `T[0x42]` = 24 bytes — ✅ VERIFIED 2026-09-19, oracle: pbp m68k write trace `pbp+0x41c0`):
+  - `+3 (u8)`: flag. `getbits(1)`. **1 = the entry has house numbers** (at least one of its
+    S2 records has a non-`0x7FFF` range): 2,510 / 2,510, and 0 for all 4,363 others (CD-ID 21594).
+  - `+4–5`: zero (not decoded); 0 in all 6,873 records sampled on CD-ID 21594.
+- **Section 2** (street → map link, `T[0x42]` = 24 bytes; earlier read as geometry. Bitstream layout ✅ VERIFIED 2026-09-19, oracle: pbp m68k write trace `pbp+0x41c0`):
   - `idx_N = getbits(bits_needed(count_N))` → selects 12-byte anchor
   - `has_deltas = getbits(1)`
   - if `has_deltas`: for each of 4 fields: `is_16=getbits(1)`; `val=getbits(16 if is_16 else M_hi)`
   - else: 4 × sentinel `0x7FFF`
-  - `val1 = getbits(13) << 1`; `val2 = getbits(M_lo)`
+  - `val1 = getbits(13 if subrel < 9 else 15) << 1`; `val2 = getbits(M_lo)`
   - **Output byte layout**:
 
     | offset | size | content |
@@ -612,13 +637,59 @@ PARCEL_S0_FMT = ">HBBHH"        # 8 bytes
     | `+12`  | u16  | `raw_delta[2]` |
     | `+14`  | u16  | `raw_delta[3]` |
     | `+16`  | i32  | `anchor_f2` — anchor bytes 8-11 (raw copy) |
-    | `+20`  | u16  | `val1 = getbits(13) << 1` |
+    | `+20`  | u16  | `val1 = getbits(13 or 15) << 1` (15 from sub-revision 9) |
     | `+22`  | u16  | `val2 = getbits(M_lo)` |
 
-  - **Note**: firmware stores raw anchor + raw compressed deltas. The routing engine
-    applies sign-extension and `anchor+delta` at query time. The `is_16` flag is consumed
-    from the bitstream but NOT stored in the record; `M_hi` is needed to interpret
-    `raw_delta[k]` when `is_16=0`.
+  - **Field meaning** (2026-09-27, see "`0x0E` is the street-name directory" below):
+
+    | offset | size | content |
+    |--------|------|---------|
+    | `+0`   | i32  | X of the **centre of the target `0x00` tile** (anchor bytes 0-3) |
+    | `+4`   | i32  | Y of the centre of the target tile (anchor bytes 4-7) |
+    | `+8`   | u16  | **even house numbers, low** (`0x7FFF` pair = none) |
+    | `+10`  | u16  | even house numbers, high |
+    | `+12`  | u16  | **odd house numbers, low** (`0x7FFF` pair = none) |
+    | `+14`  | u16  | odd house numbers, high |
+    | `+16`  | u32  | **`BLOCK_ID` of a type `0x00` map tile** (anchor bytes 8-11) |
+    | `+20`  | u16  | `val1`: byte offset of a record in that tile's **SECTION_4** (road segments) |
+    | `+22`  | u16  | `val2`: number of consecutive SECTION_4 records |
+
+    The four "deltas" are **not coordinates**: they are unsigned house-number ranges, and
+    there is no sign extension to apply. The anchor table in the pre-header is a per-block
+    list of the `0x00` tiles the block links to: `(centre X, centre Y, BLOCK_ID)`.
+  - The `is_16` flag is consumed from the bitstream but not stored in the record.
+
+### 6.3.2 Type `0x0E` Field Meaning from Disc Data
+
+Checked on CD-IDs 2952, 21594, 21708 and 21734 (`CF=0`, `CF=1` and `CF=2`; `CF=1` on the DVDs with the 15-bit `val1`, see below):
+
+| Check | Result |
+|---|---|
+| S0 `A` points to a NUL-terminated street name in the text after SECTION_2 | 122,743 / 122,743 records (CD-ID 21708, 150 `CF=2` blocks); same on both CDs |
+| S0 records are in alphabetical order of that name | 97% (CD-ID 21708); accented names account for the rest |
+| S0 `C`, when non-zero, points to a locality string (e.g. `haddington road` → `dublin 4`) | 24,137 / 24,137 (CD-ID 21708) |
+| S2 `+16` is the `BLOCK_ID` of a type `0x00` block with that exact length | 100%: 455,974 records (CD-ID 21594, plain), 6,942 (CD-ID 2952), 23,451 (CD-ID 21708, `CF=2`), 23,724 (CD-ID 21734, `CF=2`) |
+| S2 `+20` lands in that tile's SECTION_4 on a record boundary (stride `T[0x08]`: 32, or 30 on DB-REL 22) | 100% on all four discs; the `+22` run also stays inside SECTION_4 on CD-IDs 21708 and 21734 (checked there) |
+| S2 `+8..+14` are two ranges, `lo ≤ hi`, first pair both even, second pair both odd | 100% on all four discs (e.g. 134,648 even and 135,855 odd ranges on CD-ID 21594) |
+| S2 `+8..+14` match real house numbers (OSM `addr:housenumber` within 80 m of the linked segments, CD-ID 21734, 22 streets) | 98.9% of 1,355 addresses fall in a range of their street with the right parity; 85.5% in the range of their nearest segment (43.9% with the ranges shuffled between the street's segments) |
+| S2 `+0/+4` is the centre of the target tile's bbox | 100% on CD-IDs 21708 and 21734 |
+| The linked SECTION_4 segments carry the same name (segment name via SECTION_4 `+T[0x09]` → SECTION_2 `+0`) | exact / word-reordered / other name / unnamed: CD-ID 2952 55% / 16% / 19% / 11% (2,839 links); CD-ID 21594 64% / 18% / 18% / 0% (9,791); CD-ID 21708 37% / 37% / 26% / 0.1% (12,932); CD-ID 21734 35% / 47% / 18% / 0% (15,229). On the DVDs, "word-reordered" includes names that add `, locality` (`clavé anselm, roquetes` → `anselm clavé`). "Other name" is the road's other name, often a route number (`shanwar` → `n26`, `wirtenbacher strasse` → `l38`) |
+
+So a `0x0E` entry is: street name → locality → one or more `(0x00 tile, run of road
+segments, house-number ranges)`. This is the data the Destination → Street → House
+number flow needs. The block holds no road geometry, and no topology (node or neighbour
+references) has been found in its decoded fields; `S2`
+plotted as `anchor + delta` produces the "disconnected dashes" noted below because the
+anchor is a tile centre and the "deltas" are house numbers. Where the router gets its
+topology from is **not** settled by this: the only road topology found so far is in
+`0x00` (SECTION_4 end nodes, SECTION_6 boundary nodes), which contradicts the firmware
+reading above that the router never requests `0x00`.
+
+**`val1` width**: `val1` is `getbits(13)` below sub-revision 9 and `getbits(15)` from 9
+(see `04-cf1-codec.md` §9.11.7). Read as 13 bits, the `CF=1` `0x0E` blocks of CD-ID 21708
+lose sync at S2 (78% valid tile links, 15% valid house-number pairs); with 15 bits they
+check out 100% on CD-IDs 21708 and 21734, and the CDs stay at 100% with 13.
+`decode_s2_coords` should not be used as geometry.
 
 ### 6.4 Type `0x04` (80,825 blocks) — 160-Entry Table
 
@@ -720,7 +791,7 @@ sides as multiples of 98,304 and aspect ratio 1:1 / 1:2 / 2:1.
 | `0x06` | `0x10` | 60/60 |
 | `0x14`, `0x15`, `0x16`, `0x1C` | `0x20` | 60/60 |
 | `0x1D`, `0x1E` | `0x20` | 43/60, 20/39 |
-| `0x0C`, `0x0E`, `0x10`, `0x0F`, `0x11`, `0x17`, `0x19` | — | **no bbox**: indirectly georeferenced |
+| `0x0C`, `0x0E`, `0x10`, `0x0F`, `0x11`, `0x17`, `0x19` | — | **no bbox**: indirectly georeferenced (`0x0E`: each S2 record names a `0x00` tile, §6.3.2) |
 
 ### 7.5 Python Struct
 
@@ -1544,7 +1615,7 @@ python3 scripts/analyze_codec.py --type 0x1E --count 1
 | 2 | POI `0x06` and feature `0x16` records | ✅ **RESOLVED** — 28 and 20 bytes, local scale 64 | — |
 | 3 | Bounding box per block | ✅ **RESOLVED** — `find_bbox`, 60/60 on georeferenced types | — |
 | 4 | `COMPRESSION_FLAG = 1` | ✅ **RESOLVED** — structure-driven bit-packing parameterized by superblock `RECORD_SIZE_TABLE`; decoder verified for `0x00`, `0x0E`, `0x14`–`0x16`. 1,200/1,200 `CF=1` type `0x00`; oracle 10/10 `0x16` CF=1 (1958 geo records); oracle 10/10 `0x0E` CF=1 S0/S1/S2. Firmware listing: `docs/fw/pbp_0x0E_decoder.asm`. | — |
-| 5 | Field semantics in `0x0E` SECTION_0/1/2 (road network) | ✅ **RESOLVED** — A=arc ptr (S2 byte offset), FLAGS bits 0–1/4=direction, B=functional class, C=cross-parcel ref (0 in 0x0E), D=ptr→S1; S2 = delta-decoded geometry (x_anc/y_anc absolute, raw deltas, val1/val2). Oracle 15/15 blocks. See `docs/carindb/03-road-network.md §6.3.1`. | — |
+| 5 | Field semantics in `0x0E` SECTION_0/1/2 | ✅ **RESOLVED (revised 2026-09-27)** — street-name directory: A=ptr→street name, C=0 or ptr→locality, D=ptr→S1; S2 = `0x00` tile (`BLOCK_ID`, centre X/Y) + SECTION_4 segment run + even/odd house-number ranges. Checked on CD-IDs 2952, 21594, 21708, 21734. FLAGS = kind of name, B = language code, S1 +3 = has house numbers (§6.3). See §6.3.2. | — |
 | 6 | Georeferencing of parcels `0x0C`/`0x0E`/`0x10` (via `0x0D`/`0x0F`/`0x11`) | ✅ **RESOLVED** — `find_parcel(vol, X, Y) → sector` oracle 10/10 PASS 2026-09-19. Spatial index built from S2 `x_anc`/`y_anc`; cached in `dataset/parcel_index.npz`. **Key**: `0x0D`/`0x0F`/`0x11` are TEXT address-lookup indices (ASCII street/country codes → parcel record ranges), NOT geographic R-trees. See `scripts/find_parcel.py`. | — |
 | 7 | Mapping `BLOCK_TYPE → section_type[]` | not present in data | 🟠 high |
 | 8 | Resolution of `NAME_PTR` high16 (country table) | 6 unidentified segments | 🟡 medium |

@@ -344,10 +344,14 @@ Type `0x0E` Section 2 oracle (2026-09-19): ground-truth write trace from m68k fi
 (`pbp+0x41c0`). The 24-byte record stores **raw anchor + raw deltas** — not pre-computed
 coordinates. Layout: `+0` i32 x_anc; `+4` i32 y_anc; `+8..+14` 4×u16 raw_delta[0..3]
 (width = `is_16?16:M_hi`, `is_16` consumed from bitstream but NOT stored); `+16` i32
-anchor_f2 (anchor bytes 8–11, previously missing); `+20` u16 val1 = `getbits(13)<<1`;
+anchor_f2 (anchor bytes 8–11, previously missing); `+20` u16 val1 = `getbits(13)<<1` (15 bits from sub-revision 9);
 `+22` u16 val2 = `getbits(M_lo)`. End-to-end check sector 2252227: 0/133 bad anchor
 indices, 556/556 non-zero val1/val2. See `docs/carindb/03-road-network.md` §6.3.1 for
 full verified layout table and `docs/fw/pbp_0x0E_decoder.asm` for write trace.
+The bitstream layout stands; the field *meaning* was revised on 2026-09-27: `raw_delta`
+are house-number ranges, `anchor_f2` is a `0x00` `BLOCK_ID`, `val1`/`val2` are a
+SECTION_4 offset and count. `val1` is 15 bits from sub-revision 9 (§9.11.7); with
+that, the `CF=1` S2 decode is 100% consistent on all four discs tested.
 
 ## 9.11.9 `encode_type0E` — CF=1 serializer (STEP 4, ✅ 2026-09-19)
 
