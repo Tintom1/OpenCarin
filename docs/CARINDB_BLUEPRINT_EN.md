@@ -557,6 +557,14 @@ That could be the post town's `0x0E` list (where `C` gives the locality) or the 
 and neither was changed. The `0x0F` rule does not rebuild the `0x0D` city tries: these split some
 groups that sit in one block (open).
 
+The destination line comes from the map: re-encoding the `0x00` tiles with `encode_type00` and
+changing the street name and locality that section 2 points to (`+0` street, `+2` locality) makes
+the destination screen show the new names, with the post town's initial in front of the locality
+(`T.-CUSTOM` for a place whose `0x0C` post town is Truro). The same names show when the road is
+picked on the map. A name blob must end on the NUL that closes its last string, as every blob on
+the discs does: the unit's decode buffer is not zeroed, and without that NUL the last name ran on
+into leftover bytes (`HELLO WORLD ü $°%ú`).
+
 ### 4.5 `CARINET` — Event Text Catalog (independent block space)
 
 ```

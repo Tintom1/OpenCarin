@@ -322,6 +322,20 @@ def dec_text(ctx: Cf1Context, floor: "int | None" = None) -> None:
         p += 1
 
 
+def text_end(dst: bytes, start: int) -> int:
+    """Last byte of a name blob starting at `start`: the NUL closing its last string.
+
+    The discs' blobs always end on that NUL (400/400 blocks sampled on CD-ID 2952).
+    It must be written: the firmware's output buffer is not zeroed, and without it
+    the last name runs on into whatever the buffer held (seen on a CNI1).
+    Returns start - 1 for an empty blob.
+    """
+    last = len(dst.rstrip(b"\x00")) - 1
+    if last < start:
+        return start - 1
+    return min(last + 1, len(dst) - 1)
+
+
 def enc_text(bw: BitWriter, dst: bytes, start: int, end: int, ptrbits: int) -> None:
     """Inverse of dec_text: write dst[start..end] (end inclusive) as a name blob.
 
@@ -641,7 +655,7 @@ class _Enc00:
 
     def text(self) -> None:
         start = _layout_end(self.D, self.T, self.dbrel)
-        end = len(self.D.rstrip(b"\x00")) - 1
+        end = text_end(self.D, start)
         enc_text(self.bw, self.D, start, end, self.pb)
         self.sh[start:end + 1] = self.D[start:end + 1]
 

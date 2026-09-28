@@ -80,3 +80,13 @@ def test_type00_rejects_odd_even_field():
     dec[e4_off + 1] |= 1                  # S4 +0 is carried as g(pb - 1) << 1
     with pytest.raises(cf1.Cf1Error):
         cf1.encode_type00(bytes(dec), T, 22, subrel=8, sector_size=SECTOR_SIZE)
+
+
+@pytest.mark.parametrize("dbrel", [22, 34])
+def test_type00_blob_ends_on_the_closing_nul(dbrel):
+    # the firmware's buffer is not zeroed: the last name's NUL must be in the stream
+    T = TABLES[dbrel]
+    dec = _tile(dbrel, 1)
+    raw = cf1.encode_type00(dec, T, dbrel, subrel=8, sector_size=SECTOR_SIZE)
+    ctx = cf1.decode_ctx(raw, T, dbrel, subrel=8, sector_size=SECTOR_SIZE)
+    assert ctx.texts[0][1] == len(dec.rstrip(b"\0"))
