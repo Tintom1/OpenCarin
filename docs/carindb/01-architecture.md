@@ -683,6 +683,30 @@ their localities: `a30, blackwater`), not those of the city that was picked; pic
 again brings its own list back. This is the unit's normal behaviour (checked on an unedited
 village), so a rename meant to be found this way must also be made in the post town's list.
 
+**Moving a block (tested on a CNI1, CD-ID 2952).** A packed `0x00` tile was copied to the end of
+`carindb` (the file grew by 3 sectors; the `CDI` directory and `CDI/PD` moved up behind it, with
+the root directory, the `CDI` directory, both path tables and the PVD volume size patched), its
+old sectors were zeroed, and every pointer to it was rewritten. The unit draws, searches and
+routes the area as before, including routes that cross into the tile. So the firmware reaches
+blocks only through their `BLOCK_ID`s, never by position in the chain, and `carindb` can grow.
+A scan of every block on the disc (packed ones decoded) for that tile's `BLOCK_ID` found these
+pointer kinds and nothing else (`local/tools/refs.py`):
+
+| Holder | Field | Count for this tile |
+|---|---|---|
+| `0x0E` street directory | S2 `+16`, the street's segment run | 29 |
+| Neighbouring `0x00` tiles | slot 6 `+8`, tile-edge twin | 34 |
+| Neighbouring `0x00` tiles | slot 9, neighbour list | 5 |
+| `0x0C` city record | S1 `+0x0C`, city centre | 2 |
+| `0x10` POI details | section 4 (8 B records) `+0`, the POI's road | 3 |
+| `0x09` spatial-index cell | tile list | 1 |
+| `0x04` house numbers | header `+12` | 1 |
+| The tile itself | header `+0`; slot 10 (and slot 13) own-tile entries | 1 + 12 |
+
+`0x03` slot 8 can also point at a `0x00` tile (not for this one), and `0x10` section 1
+(20 B records) `+8` does for a few tiles. A tile's header points outwards at `+80` (its `0x04`
+block) and `+84` (its `0x03` parent); those don't change when the tile moves.
+
 ### 4.5 `CARINET` — Event Text Catalog (independent block space)
 
 ```
