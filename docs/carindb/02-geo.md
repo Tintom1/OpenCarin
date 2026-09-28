@@ -79,6 +79,23 @@ the bbox with a grid constraint (`carin.parser.iso.find_bbox`): sides multiple o
 > it is readable on `CF=1` blocks *without decompressing* — the basis of the
 > cross-edition method in [`05-failed-attempts.md`](05-failed-attempts.md) §9.10.
 
+#### 7.4.1 Type `0x00` frames on CD-era discs
+
+Two single-file `carindb` CD discs store the `0x00` frame at `0x44` differently
+from the DVD layout above, and neither matches the 98,304 grid, so
+`find_bbox` finds nothing on them:
+
+| disc | fields at `0x44` | tile sides |
+|---|---|---|
+| DB-REL 34 (CD-ID 21594) | `X_min, Y_min, X_max, Y_max` (full box) | powers of two (2^19, 2^21 …), 1:1 or 2:1 |
+| DB-REL 22 (CD-ID 2952) | `Y_min, X_max, Y_max` — **east** edge, latitude extent only | 1:1 or 2:1; the X extent is not stored |
+
+On the three-field form the X extent is either equal to the Y extent or twice
+it, and is resolved from the geometry (it must contain every section 7 point);
+the west edge is `X_max − width`. Reading that field as the west edge shifts
+every tile east by its own width, which is why tiles of different sizes then
+fail to join. `carin.parser.geometry.tile_frame` handles both forms.
+
 ### 7.5 Python struct
 
 ```python
@@ -162,3 +179,32 @@ Verified example (sector 6326923, Göteborg bbox):
 
 The same 20-byte layout with absolute coordinates applies to types `0x14`, `0x1C`,
 `0x1D`, `0x1E` (labels of seas, regions, major cities).
+
+### 8.3 Type `0x00` — Road Segments (section 4)
+
+Street-level geometry. Field offsets are the ones `decode_type00` writes
+(`carin/parser/cf1/decoder_00.py`, `dec_b`); record size and the tail offset
+come from the `RECORD_SIZE_TABLE`.
+
+```
+section 4, record T[0x08] (30 B on CD-ID 2952, 32 B on CD-ID 21594)
+ +0x00      start node   -> section 5 (in-tile node) or section 6 (tile-edge node)
+ +0x02      end node        same
+ +0x04      first shape point -> section 7; the segment runs to the next
+            record's pointer (or the end of section 7)
+ +0x10      display class byte
+ +T[0x09]   -> section 2 record (24 on CD-ID 2952, 26 on CD-ID 21594)
+
+section 2, record T[0x40]:  +0x00  in-block offset of the NUL-terminated name
+sections 5 / 6 / 7:         +0x00  u16 x, +0x02 u16 y (tile-local)
+```
+
+Local coordinates are in units of 64 CARIN units from the tile's south-west
+corner (§7.4.1). Section 6 nodes carry coordinates in *this* tile's frame and
+sit on its edge: they are the cross-tile joins, so both sections 5 and 6 must
+be resolved for segment endpoints, or boundary roads stop short of the edge.
+
+`carin.parser.geometry.road_segments` returns each segment as WGS84 points with
+its name and display class; `scripts/geo/extract_00_geometry.py` exports them
+as GeoJSON by sector or by WGS84 window. On CD-ID 21594, 88.7% of
+OpenStreetMap road vertices in a test area have a decoded segment within 40 m.

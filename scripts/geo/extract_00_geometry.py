@@ -1,83 +1,77 @@
+"""Export georeferenced road geometry from BLOCK_TYPE 0x00 blocks as GeoJSON.
+
+Usage:
+    extract_00_geometry.py ISO OUT --sector N [N ...]
+    extract_00_geometry.py ISO OUT --window LON0 LAT0 LON1 LAT1
+
+Each road segment becomes a WGS84 LineString with its name (when the block
+carries one) and display class. See carin/parser/geometry.py.
+"""
 import argparse
 import json
-import struct
 import sys
 from pathlib import Path
 
-# Add root to sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from carin.parser.iso import IsoImage, CarinVolume
-from carin.parser import cf1
+from carin.parser.geometry import header_bounds, road_segments
+
+
+def _overlaps(a, b):
+    return a[0] <= b[2] and b[0] <= a[2] and a[1] <= b[3] and b[1] <= a[3]
+
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("iso", help="Path to ISO")
-    parser.add_argument("sector", type=int, help="Sector of 0x00 block")
     parser.add_argument("out", help="Output GeoJSON")
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument("--sector", type=int, nargs="+", help="Sector(s) of 0x00 blocks")
+    group.add_argument("--window", type=float, nargs=4,
+                       metavar=("LON0", "LAT0", "LON1", "LAT1"),
+                       help="Export every 0x00 block overlapping this WGS84 box")
     args = parser.parse_args()
 
     vol = CarinVolume(IsoImage(args.iso))
-    blk = vol.block(args.sector)
-    
-    if blk.type != 0x00:
-        print("Not a 0x00 block!")
-        sys.exit(1)
-        
-    data = blk.data
-    if not data:
-        print("Empty or unsupported block.")
-        sys.exit(1)
+    vol.calibrate()
+    table = vol.layout
 
-    base_d = 8
-    s4_off, s4_cnt = struct.unpack_from(">HH", data, base_d + 4 * 4)
-    s7_off, s7_cnt = struct.unpack_from(">HH", data, base_d + 7 * 4)
+    if args.sector:
+        sectors = args.sector
+    else:
+        sectors = []
+        for head in vol.walk():
+            if head.type != 0x00:
+                continue
+            raw = vol.read_sectors(head.sector, 1)
+            box = header_bounds(raw, table)
+            if box and _overlaps(box, args.window):
+                sectors.append(head.sector)
 
-    # Read all points from S7
-    points = []
-    for i in range(s7_cnt):
-        x, y, flags = struct.unpack_from(">HHB", data, s7_off + i * 6)
-        points.append((x, y))
-
-    # Read S4 records to build polylines
     features = []
-    for i in range(s4_cnt):
-        ptr_s7 = struct.unpack_from(">H", data, s4_off + i * 32 + 4)[0]
-        
-        # Calculate next pointer to know how many points we have
-        # (Assuming the next S4 record points to the end of our point array)
-        if i < s4_cnt - 1:
-            next_ptr = struct.unpack_from(">H", data, s4_off + (i + 1) * 32 + 4)[0]
-        else:
-            next_ptr = s7_off + s7_cnt * 6
-            
-        # Only process if it points to S7 and moves forward
-        if ptr_s7 >= s7_off and next_ptr >= ptr_s7:
-            start_idx = (ptr_s7 - s7_off) // 6
-            end_idx = (next_ptr - s7_off) // 6
-            
-            line_coords = points[start_idx:end_idx]
-            if len(line_coords) > 1:
-                features.append({
-                    "type": "Feature",
-                    "geometry": {
-                        "type": "LineString",
-                        "coordinates": line_coords # using raw 16-bit values for now
-                    },
-                    "properties": {
-                        "line_index": i
-                    }
-                })
-
-    geojson = {
-        "type": "FeatureCollection",
-        "features": features
-    }
+    for sector in sectors:
+        blk = vol.block(sector)
+        if blk.type != 0x00 or not blk.data:
+            print(f"sector {sector}: not a decodable 0x00 block, skipped")
+            continue
+        for seg in road_segments(blk.data, table):
+            features.append({
+                "type": "Feature",
+                "geometry": {"type": "LineString", "coordinates": seg["coords"]},
+                "properties": {
+                    "sector": sector,
+                    "index": seg["index"],
+                    "name": seg["name"],
+                    "display_class": seg["display_class"],
+                },
+            })
 
     with open(args.out, "w") as f:
-        json.dump(geojson, f, indent=2)
+        json.dump({"type": "FeatureCollection", "features": features}, f)
 
-    print(f"Exported {len(features)} polylines to {args.out}")
+    print(f"Exported {len(features)} road segments from {len(sectors)} blocks to {args.out}")
+
 
 if __name__ == "__main__":
     main()
