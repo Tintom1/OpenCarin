@@ -366,17 +366,17 @@ S7 is a sequence of 6-byte records.
 The firmware evaluates this flag to determine if the turtle graphics cursor should move (Pen-Up, e.g. starting a new line) or draw (Pen-Down, continuing the polyline). This flag breaks the sequence into individual street curves and correctly manages line continuity.
 
 **Section 1 (Bounding Box / Geometry Limits):**
-S1 (e1) is an array of 24-byte structs. Firmware C decompilation (dbq/pbp_clean.c) proves it parses identical to  x0E S2 records:
-- Reads a flag: if  , populates four int16 fields with  x7FFF (sentinel for no geometry).
+S1 (e1) is an array of 24-byte structs. Firmware C decompilation (dbq/pbp_clean.c) proves it parses identical to 0x0E S2 records:
+- Reads a flag: if 0, populates four int16 fields with 0x7FFF (sentinel for no geometry).
 - If 1, it reads four int16 bounds (likely Delta X/Y bbox limits).
-- Then it reads a uint16 (shifted left by 1) and a second uint16, mirroring exactly the al1 and al2 fields of  x0E S2.
+- Then it reads a uint16 (shifted left by 1) and a second uint16, mirroring exactly the val1 and val2 fields of 0x0E S2.
 This acts as spatial filtering to cull BSP branches without iterating S7 points.
 
 **Firmware Dispatcher Architecture (The "Magic Numbers" Myth):**
-Values previously thought to be internal section IDs (like  x24,  x28,  x2A,  x2C) are actually **direct byte offsets into the  x00 block header**.
-- The  x00 block has an 8-byte header, followed by the SECTION_DESCRIPTOR array (offset, count).
-- E.g.,  x28 is 8 + 8 * 4 = 40, which is the exact byte offset of the e8 descriptor's offset field.  x2A is the count field.
-- The C firmware explicitly does *(ushort *)(in_D0 + 0x28) to read the array pointer, meaning the layout of  x00 is rigidly hardcoded, relying on these structural header offsets rather than runtime switch-cases.
+Values previously thought to be internal section IDs (like 0x24, 0x28, 0x2A, 0x2C) are actually **direct byte offsets into the 0x00 block header**.
+- The 0x00 block has an 8-byte header, followed by the SECTION_DESCRIPTOR array (offset, count).
+- E.g., 0x28 is 8 + 8 * 4 = 40, which is the exact byte offset of the e8 descriptor's offset field. 0x2A is the count field.
+- The C firmware explicitly does *(ushort *)(in_D0 + 0x28) to read the array pointer, meaning the layout of 0x00 is rigidly hardcoded, relying on these structural header offsets rather than runtime switch-cases.
 
 ### 6.7 Types `0x00`–`0x03` — Road Graph (routing) (2026-09-28)
 
