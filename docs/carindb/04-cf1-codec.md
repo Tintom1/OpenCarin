@@ -248,6 +248,8 @@ kind 0x15 : dec(e0), dec_B(e4), inline e13 (record T[0x4c]=8: u32, ptr, 2 bytes)
 kind 0x17 : dec(e2), dec(e1), dec(e0)
 if getbits(1): dec_text()
 if getbits(1): dec_text()
+# DB-REL 34 continues with data no firmware here reads: an unknown head,
+# then the section 4 +0x18 pass and a final 1 bit (03-road-network.md, section 6.7)
 ```
 
 Annotated listings in `docs/fw/` (`mips_*.asm` for DB-REL 34, `m68k_pbp_decoders.asm`

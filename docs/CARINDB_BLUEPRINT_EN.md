@@ -578,11 +578,18 @@ Types `0x00`–`0x03` form a routable road graph. `0x00` is the street level and
 | `+0x12` → section 10 | start of this segment's **forbidden turns** (see below) | monotone in 108 / 108 tiles |
 | `+0x14` → section 12 | TMC location references (DVD only, see below) | |
 | `+0x16` → section 13 | **toll points** (DB-REL 34; see below) | every segment of a tile holds the same offset when the section is empty |
-| `+0x18` | u16, high byte only (`0x0100`–`0x0400`, `0x1000`). **Only present in plain (`CF=0`) tiles**: the packed stream has no field for it, and no firmware decoder writes it (Mk3 0103–0127, RR 0101–0103), so in packed tiles (96% of `0x00` on CD-ID 21594) it is 0 and the units never see it. Values: 1, 2, 3 = the segment's slip role, repeating `+0x0B` form 1/8, 2/9, 3/0xA; 4 = about a third of class 6 subtype 1 roads (mostly tracks, service roads and farm lanes in OSM; meaning unclear); `0x10` = rare, on main roads | CD-ID 21594, all 1,114 plain `0x00` tiles: 236 / 236 tiles with slip roads mark every slip segment; 613 / 1,998 subtype-1 class 6 segments carry 4. DVD 21708: non-zero on 147 of 30,264 sampled segments |
+| `+0x18` | u16, high byte only (`0x0100`–`0x0400`, `0x1000`). Values: 1, 2, 3 = the segment's slip role, repeating `+0x0B` form 1/8, 2/9, 3/0xA; 4 = about a third of class 6 subtype 1 roads (mostly tracks, service roads and farm lanes in OSM; meaning unclear); `0x10` = rare, on main roads, sometimes combined with a slip role (`0x11`, `0x13`). Plain (`CF=0`) tiles store it in the record. **Packed tiles store it in an extra pass after pass `0x17`**, which neither `decoder_00.py` nor any firmware we have (Mk3 0103–0127, RR 0101–0103) reads; see "Packed tiles: the `+0x18` pass" below | plain, CD-ID 21594, all 1,114 plain `0x00` tiles: 236 / 236 tiles with slip roads mark every slip segment; 613 / 1,998 subtype-1 class 6 segments carry 4. Packed: the same values in 873 / 1,000 sampled tiles. DVD 21708: non-zero on 147 of 30,264 sampled segments |
 | `+T[0x09]` → section 2 | road name and locality | `03-road-network.md` §6.3.1 |
 | `+T[0x09]+2` hi (`+0x1C`) | bit 4 always set; **bit 3 = bridge**; bits 1–2 (value `0x16`) on stretches of motorway/trunk/main roads; bit 0 on a few tunnels (`0x1D`) | bit 3: 80% of OSM `bridge` segments vs 1% of the rest. `0x16`: 41% of motorway segments (M621, M50, Leeds Inner Ring Road, M1), 6% of trunk; meaning unknown |
 | `+T[0x09]+3` (`+0x1D`) | bit 7 = built-up area (same as `+0x0A` bit 7); bits 1–2 ≈ **width / lane category**: 0 one-lane one-way, 1 ordinary road, 2 wide one-way (motorway carriageway), 3 wide two-way (4+ lanes); bit 0 unexplained (mostly set on residential streets) | vs OSM `lanes`: one-way 1 lane → 0 (63%); two-way 1–2 lanes → 1 (92–94%); motorway → 2 (89%); two-way 5 lanes → 3 (61%). Coarse, not a lane count |
 | `+T[0x09]+4` → section 11 | **signposts** (see below) | |
+
+**Packed tiles: the `+0x18` pass (DB-REL 34).** The packed `0x00` stream does not end after pass `0x17`. Three parts follow:
+1. A head of unknown content: median 18 bits, up to about 900. It is at least 2 bits (`00`) and never 3, 4 or 7 bits; every head of 5 bits or more ends in `000`. It sits where the Mk3 reads its two optional text-blob flags, but it can't be those: heads as short as 5 bits start with a 1, and a text blob needs at least 2 × `PTRBITS` bits.
+2. One record per section 4 segment: a flag bit, followed by a new u16 for `+0x18` when the flag is set. When the flag is clear, the segment keeps the previous segment's value. The first segment always has the flag set.
+3. A single 1 bit, then zero padding to the end of the block.
+
+On CD-ID 21594 the pass was located in 873 of 1,000 random packed tiles by search: its start is the first position where the pass ends on the last set bit, gives only known values and marks exactly the slip roads. Only the slip roads were used for the fit. The other values came out on their own and match the plain tiles: `0x0400` on 1,406 class 6 subtype 1 segments and nowhere else, and `0x1000` on a few class 1 and 2 roads. Most of the tiles that don't fit have many segments with form 1 but no slip role (in one tile, all 203 segments); a few have a zero run shorter than the segment count. Both are unexplained. This pass accounts for most of the ~20 B of unexplained data per packed tile. It fits the format's backwards compatibility (§9.11.6 of the blueprint): each DB-REL appends passes and older readers stop early, so the firmware we have never reaches it. Until the head is decoded, a decoder can't find the start of the pass without the search in `local/tools/pass18.py`. CD-ID 2952 (DB-REL 22) has no `+0x18` and no data after pass `0x15`.
 
 On DB-REL 22 (30 B records) there is no `+0x16` section 13 pointer: `+0x14` is the last section pointer, `+0x16` is the always-zero u16, `T[0x09]` = `0x18`, and the flags u16 is at `+0x1A`. On CD-ID 2952 (100 tiles, 15,186 segments) the same fields show the same patterns: class 6 subtypes, `+0x11` 0/5/6/9, the `+0x1A` hi byte 0x10/0x18/0x90, low byte 0x80–0x87. The speed values differ slightly (mostly 13, 17, 22, 31 and 2 instead of 11, 16, 22, 31 and 2). These were not matched to OSM on that disc. Tools: `local/tools/seg4.py` (per-class survey), `seg4osm.py` (OSM matching), `seg4study.py` and `seg4bits.py` (cross-tabs).
 
@@ -1519,6 +1526,8 @@ kind 0x14: dec_e0, dec_e1, dec_e2, dec_B, [dec_C/dec_D/dec_E inlined]
 kind 0x15: dec_e0, dec_B, ...
 kind 0x17: dec_e2, dec_e1, dec_e0
 if getbits(1): dec_text()      # two text blobs, not one
+# DB-REL 34 continues with data no firmware here reads: an unknown head,
+# then the section 4 +0x18 pass and a final 1 bit (see 6.2.1)
 ```
 
 The descriptor of type `0x00` has **15 entries** in DB-REL 34 (`e0..e14`), versus
