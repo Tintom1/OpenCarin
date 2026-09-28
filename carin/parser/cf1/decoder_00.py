@@ -78,8 +78,10 @@ def dec_b(ctx: Cf1Context, kind: int) -> None:
     """db_pub+0x348c — sezione 4, record T[0x08], campi di coda a T[0x09].
 
     ``kind`` seleziona il gruppo di campi: 0x14 sono quelli gia' presenti in
-    DB-REL 20 (piu' il record sentinella in coda), 0x15 il campo ``+0x16``
-    aggiunto in DB-REL 21, che punta nella sezione 13.
+    DB-REL 20, 0x15 il campo ``+0x16`` aggiunto in DB-REL 21, che punta nella
+    sezione 13, 0x1B il campo ``+0x18`` di DB-REL 27. Le passate 0x14 e 0x15
+    leggono anche il record sentinella in coda (Mk3 +0x3a68/+0x3c50, RR
+    sub_005594 +0x5be0/+0x5db8); la 0x1B no.
     """
     e4 = ctx.entry(4)
     e2, e7, e10, e11, e12, e13 = (ctx.entry(i) for i in (2, 7, 10, 11, 12, 13))
@@ -87,6 +89,12 @@ def dec_b(ctx: Cf1Context, kind: int) -> None:
     pb, pbits = ctx.ptrbits, ctx.pb
     start, end = e4.off, e4.off + e4.count * rec
     cur, prev = start, -1
+
+    def s13_ptr(at: int, prv: int) -> None:
+        if ctx.g(1):
+            ctx.w(at + 0x16, e13.off + ctx.g(pbits["s13"]) * ctx.T(T_REC_S13))
+        elif prv >= 0:
+            ctx.w(at + 0x16, ctx.rw(prv + 0x16))
 
     def ptr_group(at: int) -> None:
         ctx.w(at + 0x12, e10.off + ctx.g(pbits["s10"]) * ctx.T(T_REC_S10))
@@ -121,12 +129,20 @@ def dec_b(ctx: Cf1Context, kind: int) -> None:
                 ctx.cache_s2 = e2.off + ctx.g(pbits["s2"]) * ctx.T(T_REC_S0)
             ctx.w(cur + tail + 0, ctx.cache_s2)
         elif kind == 0x15:
+            s13_ptr(cur, prev)
+        elif kind == 0x1B:
+            # RR sub_005594 +0x5b5c: two bytes, or both copied from the
+            # previous record (the firmware's first "previous" is address 0)
             if ctx.g(1):
-                ctx.w(cur + 0x16, e13.off + ctx.g(pbits["s13"]) * ctx.T(T_REC_S13))
+                ctx.b(cur + 0x18, ctx.g(8))
+                ctx.b(cur + 0x19, ctx.g(8))
             elif prev >= 0:
-                ctx.w(cur + 0x16, ctx.rw(prev + 0x16))
+                ctx.b(cur + 0x18, ctx.dst[prev + 0x18])
+                ctx.b(cur + 0x19, ctx.dst[prev + 0x19])
         prev, cur = cur, cur + rec
 
+    if kind == 0x15:            # record sentinella (Mk3 +0x3c50, RR +0x5db8)
+        s13_ptr(cur, prev)
     if kind != 0x14:
         return
     # record sentinella in coda (blueprint 9.5: la sezione ha count+1 record)
@@ -262,13 +278,12 @@ def dec_text(ctx: Cf1Context, floor: "int | None" = None) -> None:
     `floor` is the first byte past the block's record sections; it defaults
     to the type 0x00 layout (`_sections_end`). Other block types pass theirs.
 
-    The DB-REL >= 23 pass ends with two optional dec_text calls whose flag
-    bits are read from the stream's tail padding, so they fire spuriously on
-    a large fraction of blocks with a garbage (start, end) range. If that
-    range reaches back into the numbered sections, writing it would overwrite
-    already-decoded geometry (section 7 shape points turn into repeated "aa",
-    0x6161). The bits are still consumed exactly as before, so the stream
-    stays aligned; only the writes are suppressed.
+    The DB-REL >= 23 pass ends with two optional dec_text calls. Until
+    2026-09-28 the port skipped the pass 0x15 sentinel record, so their flag
+    bits were read misaligned and fired with garbage (start, end) ranges that
+    overwrote decoded geometry (section 7 shape points turned into repeated
+    "aa", 0x6161). With the stream aligned every range lands after the
+    sections; writes below `floor` stay suppressed as a guard.
     """
     pb = ctx.ptrbits
     start = ctx.g(pb)
@@ -312,8 +327,12 @@ def decode_type00(ctx: Cf1Context) -> None:
 
     Il flusso e' organizzato in passate: ogni passata percorre di nuovo le
     sezioni leggendo il gruppo di campi introdotto da una certa revisione del
-    formato (0x14 = DB-REL 20, 0x15 = 21, 0x17 = 23). Le passate oltre la
-    DB-REL del disco non esistono nel flusso e vanno saltate.
+    formato (0x14 = DB-REL 20, 0x15 = 21, 0x17 = 23, 0x1B = 27). Le passate
+    oltre la DB-REL del disco non esistono nel flusso e vanno saltate.
+
+    Portato dal Mk3 (0127), che si ferma alla 0x17; la passata 0x1B viene dal
+    RoadRunner (bsw2 0101, db_pub sub_005e6c +0x6e70). Dopo di essa i blocchi
+    DB-REL 34 hanno un solo bit a 1 e poi zeri, che nessun firmware legge.
     """
     ctx.copy_raw(0, ctx.T(T_PROLOG))
     ent = ctx.entry
@@ -364,4 +383,7 @@ def decode_type00(ctx: Cf1Context) -> None:
     if ctx.g(1):
         dec_text(ctx)
 
-
+    if ctx.dbrel < 0x1B:
+        return
+    # --- passata 0x1B (DB-REL 27), RR sub_005e6c +0x6e70 -------------------
+    dec_b(ctx, 0x1B)

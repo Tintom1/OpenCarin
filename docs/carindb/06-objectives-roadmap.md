@@ -35,15 +35,15 @@ Every block is readable except one group:
 |---|---|---|
 | CF=0 (plain) | all | ✅ |
 | CF=2 (zlib) | all | ✅ |
-| CF=1 (bit-packed) | `0x00`, `0x0E` | ✅ `carin/parser/cf1/`; `subrel` detected per disc (`CarinVolume.calibrate`), CD layout supported, `dec_text` overwrite fixed (was corrupting ~8% of `0x00` blocks) |
+| CF=1 (bit-packed) | `0x00`, `0x0E` | ✅ `carin/parser/cf1/`; `subrel` detected per disc (`CarinVolume.calibrate`), CD layout supported, `dec_text` overwrite fixed (was corrupting ~8% of `0x00` blocks; cause: the missing pass `0x15` sentinel, fixed 2026-09-28) |
 | CF=1 | `0x14`–`0x16`, `0x1C`–`0x1E` | ✅ one decoder, transcribed from RR `db_pub` `sub_004b88` (2026-09-28). Oracle `oracle_14_16.py` qualified on all 20,227 CF=0/CF=2 blocks, then passes all CF=1 blocks: 21708 186/1,446/7,719/318/80/14, 21734 250/2,265/11,049/544/103/14 (`0x14`/`0x15`/`0x16`/`0x1C`/`0x1D`/`0x1E`). The CC-93 port it replaces passed 0 (missing passes, empty-section overwrite). S2 `+0x0e` comes from a last pass no RR build reads (data-derived) |
-| CF=1 `0x00`, DB-REL 34 | the `+0x18` pass after pass `0x17` | ⚠️ not decoded (head undecoded); plain tiles are fine |
+| CF=1 `0x00`, DB-REL 34 | passes `0x15`/`0x17` and the `+0x18` pass | ✅ 2026-09-28: pass `0x15` sentinel record (Mk3 and RR read it, the port did not) and pass `0x1B` (`+0x18`, RR `sub_005e6c +0x6e70`). Oracle `oracle_00.py` qualified on all 13,353 CF=0/CF=2 tiles, then passes all CF=1 tiles: 86,107/86,107 (21708), 91,651/91,651 (21734); before, 0 of each. Last bit after pass `0x1B`: a single 1 no firmware reads (`04-cf1-codec.md` §9.11.12) |
 
 ## 2. Block types and their meaning
 
 | Type | Role | Status | Where |
 |---|---|---|---|
-| `0x00` | street-level tile: geometry + routable graph + names | ✅ S2, S4, S5, S6, S7, S9–S14 · ❓ S0, S1, S3 · ⚠️ `+0x18` pass | `02-geo.md` §8.3, `03-road-network.md` §6.6–6.7 |
+| `0x00` | street-level tile: geometry + routable graph + names | ✅ S2, S4 (incl. `+0x18`), S5, S6, S7, S9–S14 · ❓ S0, S1, S3 | `02-geo.md` §8.3, `03-road-network.md` §6.6–6.7 |
 | `0x01`–`0x03` | coarser levels of the same graph; S8 links a tile to the next level down | ✅ | `03-road-network.md` §6.7 |
 | `0x04` | house-number range index | ✅ layout · ❓ relation to the `0x0E` S2 house numbers | `03-road-network.md` §6.4 |
 | `0x06` | POI spatial index → `0x10` | ✅ | `02-geo.md` §8.1 |
@@ -71,6 +71,7 @@ Every block is readable except one group:
 | `subrel >= 9` follows from DB-REL 34 | per disc (CD 21594 needs 8) | PR #4, issue #6 |
 | 98,304 tile grid is universal | follows from the `0x07` root square; DVD-specific value | PR #11 |
 | `find_parcel` indexes `0x0E` by S2 anchors | S2 `+0/+4` are the centres of linked `0x00` tiles; the real spatial index is `0x07`–`0x09` | PR #10, #11 |
+| Packed `0x00` tiles carry a `+0x18` pass no firmware reads, behind a head of unknown content | RR reads it as pass `0x1B`; the head came from the port skipping the pass `0x15` sentinel | RR `sub_005e6c`, `04-cf1-codec.md` §9.11.12 |
 
 ---
 
@@ -80,8 +81,10 @@ Every block is readable except one group:
 1. ~~**`0x1C`–`0x1E` CF=1.**~~ Done 2026-09-28 (`04-cf1-codec.md` §9.11.11). Left open: the
    meaning of S2 `+0x0e` (read by no available firmware) and of S1/S2 `+4`, `+0x0a`, e4;
    the 8-byte S3 branch (no block uses it); DB-REL < 34 discs.
-2. **`+0x18` pass in packed `0x00` tiles.** Decode the pass head so the pass can be found
-   without search. *Done =* `+0x18` matches plain-tile statistics on 21708/21734.
+2. ~~**`+0x18` pass in packed `0x00` tiles.**~~ Done 2026-09-28 (`04-cf1-codec.md`
+   §9.11.12): the RR reads it as pass `0x1B`; the "head" was the port's misalignment (missing
+   pass `0x15` sentinel). Left open: the single 1 bit after pass `0x1B`; the meaning of `+0x18`
+   values 4 and `0x10`; DB-REL < 34 discs.
 3. **Spatial lookup on `0x07`–`0x09`.** Library module that answers "tiles of layer X at
    (lon, lat)"; replace `find_bbox` (98,304 assumption) and the S2-anchor `find_parcel`.
 4. **Retire superseded code**: `decode_s2_links` (tile link, segment run, house numbers) replaces
@@ -98,6 +101,7 @@ Every block is readable except one group:
    node `+6` flags, S10 flags 2/3, the per-block-type table `gp[-0x7A30]`.
 9. **Issue #6**: where `subrel` (LAYOUT `+2`) comes from; trace the RR `db_pub` setup.
 10. **RR vs Mk3 `db_pub`**: diff the CF=1 decoders (the listings in `docs/fw/` are Mk3).
+    Done for `0x00` (§9.11.12) and `0x14`–`0x1E` (§9.11.11); `0x0E` and `0x29` remain.
 
 ### C. Library and export
 11. **Typed records per block type** (`carin` API) instead of per-type scripts.
