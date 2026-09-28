@@ -605,8 +605,8 @@ DB-REL 34 and 20 on DB-REL 22:
 +0x06 u16 count                     /
 +0x08 u16 offset into section 3, +0x0A u16 count: the city's own 0x11 POI tries
       (12-byte records like 0x0A section 3; categories 48, 56, 57 seen)
-+0x0C u32 BLOCK_ID of a 0x00 tile, +0x10 u16 offset in it (CD-ID 21594; probably the
-      city centre, not checked)
++0x0C u32 BLOCK_ID of a 0x00 tile, +0x10 u16 offset in it: the city centre, used when a
+      city is chosen without a road
 ```
 Section 5 holds variable-length brand lists (`renault`, `bp`, `shell`, `tesco`) with `0x11`
 pointers; not decoded.
