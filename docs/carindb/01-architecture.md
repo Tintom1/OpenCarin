@@ -568,6 +568,8 @@ def parse_country(d, off):
 ```
 `group` = 0,1,2,3,4,5,6,7,0x0A,0x0C,0x0F,0x11 → language / text family index.
 
+Cross-disc data point (Audi MMI Basic Plus CD, Benelux, DB-REL 34): see `../CARINDB_BLUEPRINT_EN.md` §4.5.
+
 ### 4.6 `0x0C` — Administrative Parcel (CF=2 zlib)
 
 The `0x0C` block contains administrative region geometry and localized toponyms, decompressed generically via zlib. It is actively requested and processed by the query engine (`dbc.asm:001c38` requests block type `0x0C` explicitly).
