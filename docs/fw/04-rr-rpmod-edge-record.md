@@ -65,9 +65,11 @@ junction at `+0x14`, toll at `+0x20`, …). Its `+0x17` comes from `sub_0630cc`,
   3, 0xA → 3 (link); all other forms → 0.
 
 This confirms from firmware both the slip roles of §6.7 and the meaning of `+0x18`
-values 1–3. Note that for packed tiles `decoder_00.py` does not restore `+0x18` (§6.7,
-"the `+0x18` pass"), so on DB-REL ≥ 27 discs the router would see slip role 0 and flag
-`0x10` = 0 from our decoder. The RR `db_pub` has to write it; tracing that is open.
+values 1–3. In packed tiles `+0x18` sits in an extra pass that neither `decoder_00.py`
+nor the Mk3/RR decoders on this CD read (§6.7, "the `+0x18` pass"). So this RR build
+gets `+0x18` only from plain (CF=0) tiles and sees slip role 0 on packed ones. The
+`BSW-REL 10 11` on the disc suggests a later firmware than RR `0101` may decode the pass;
+it is not on `NAV_SW(v32).iso`.
 
 ## 3. Checked on NAV_DB_21708 (DB-REL 34)
 
@@ -81,7 +83,7 @@ values 1–3. Note that for packed tiles `decoder_00.py` does not restore `+0x18
 
 ## 4. Open
 
-1. The RR `db_pub` `0x00` decoder: does it read the `+0x18` pass? (Compare with Mk3 `decode_type00`.)
+1. The `+0x18` pass of packed `0x00` tiles: no firmware on this CD decodes it; its head is undecoded (§6.7).
 2. The cost function: which edge fields feed the route cost (speed `+0x0A` bits 0–4 is not read
    by either unpacker; look for readers of `+0x0A & 0x1F`).
 3. Callers of `sub_01fd80` / `sub_04e02c`: which structure lists edges, and how the S6 twin and

@@ -9,6 +9,7 @@
 
 These navigation databases were widely used in iconic late 1990s and 2000s automotive systems, including:
 * **BMW Navigation Systems**: MK3 (CD, MIPS32) and MK4 (DVD, Hitachi SH-4) across BMW E46, E39, E38, X5 E53, Z4 E85
+  *(On the BMW update CD `NAV_SW(v32).iso` the DVD database reader and route planner are MIPS32 — the VDO Dayton "RoadRunner" software; see [docs/fw/03-firmware-provenance.md](docs/fw/03-firmware-provenance.md).)*
 * **Renault / Nissan**: Carminat Navigation Informée 1 (CNI1)
 * **VDO Dayton**: PC5000, PC5200, MS5000 series
 * Systems across Opel/Vauxhall, Rover, Land Rover, Volkswagen/Audi and others
@@ -84,7 +85,9 @@ Before diving into code, please read the technical blueprints:
 
 * 📖 **[docs/CARINDB_BLUEPRINT_EN.md](docs/CARINDB_BLUEPRINT_EN.md)** 
   * The definitive specification of the format: byte maps, superblock layout, coordinate formulas, bit-packing primitives, and verification roadmap.
-* 💻 **`docs/fw/`**: Disassembled and annotated assembly listings of the original firmware decoder routines (`mips_*.asm` for Mk3 MIPS32, `m68k_pbp_decoders.asm` for CC-93 m68k).
+* 🎯 **[docs/carindb/06-objectives-roadmap.md](docs/carindb/06-objectives-roadmap.md)**
+  * What is decoded per block type, which older conclusions were corrected, and the prioritized open work.
+* 💻 **`docs/fw/`**: Disassembled and annotated assembly listings of the original firmware decoder routines (`mips_*.asm` for Mk3 MIPS32, `m68k_pbp_decoders.asm` for CC-93 m68k). Start with [`03-firmware-provenance.md`](docs/fw/03-firmware-provenance.md): which firmware reads which disc, and the RoadRunner route planner notes in [`04-rr-rpmod-edge-record.md`](docs/fw/04-rr-rpmod-edge-record.md).
 
 ---
 
