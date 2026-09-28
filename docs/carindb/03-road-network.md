@@ -382,6 +382,8 @@ Values previously thought to be internal section IDs (like 0x24, 0x28, 0x2A, 0x2
 
 Types `0x00`–`0x03` form a routable road graph. `0x00` is the street level and `0x01`–`0x03` are coarser levels of the same network. Everything below was checked on disc data from CD-IDs 2952, 21594, 21708 and 21734 (sample sizes given per row). Rows marked **FW** are also confirmed in the Philips CARIN CC-93 firmware (`dbq/rpmod.asm`, `(c) PHILIPS,Eindhoven CARIN CC-93 system`, 1993, OS-9/68K, taken from a BMW update disc), where the route planner reads these fields from segment records at the same offsets. The CC-93 is a sibling of the units that read these discs, not their own firmware (e.g. the Renault CNI1's firmware is not in the repo), so **FW** means "an older CARiN route planner reads the field this way".
 
+> **RR firmware (2026-09-28).** The route planner of the unit that actually reads the DVDs (VDO Dayton RoadRunner, `bsw2` `rpmod`, MIPS) unpacks this record in `sub_01fd80`. It confirms `+0x00`/`+0x02`, `+0x0B` (form, direction, **toll**), `+0x0C`, `+0x0E`/`+0x0F`, `+0x10` (class, subtype), `+0x11` (the same car-access rule as `can_traverse`), the slip role (`+0x18 & 3` on DB-REL ≥ 27, else from `+0x0B`), and reads **section 10 via `+0x12`** and section 12 via `+0x14`. It also reads fields not explained here: `+0x10` bit 7, `+0x1D` bits 4–6 and `+0x18 & 0x10` (DB-REL ≥ 27). See [`../fw/04-rr-rpmod-edge-record.md`](../fw/04-rr-rpmod-edge-record.md).
+
 **Segment record (section 4, record `T[0x08]`: 32 B on DB-REL 34, 30 B on DB-REL 22):**
 
 | Offset | Field | Evidence |
@@ -430,7 +432,7 @@ On DB-REL 22 (30 B records) there is no `+0x16` section 13 pointer: `+0x14` is t
 - flag 1: at its end node (514 / 542);
 - flags 2 and 3 are rare and not understood.
 
-In central Dublin (CD-ID 21594), 55% of these junctions lie within 15 m of an OSM turn restriction, against 10% for random junctions, and 57% of OSM restriction vias have an entry within 20 m. Using the bearings to classify each entry's turn: at OSM `no_right_turn` junctions 33 of 38 entries are right turns; at `only_straight_on` junctions all listed turns are left or right; at `only_right_turn` junctions they are left turns. Not yet found in the firmware.
+In central Dublin (CD-ID 21594), 55% of these junctions lie within 15 m of an OSM turn restriction, against 10% for random junctions, and 57% of OSM restriction vias have an entry within 20 m. Using the bearings to classify each entry's turn: at OSM `no_right_turn` junctions 33 of 38 entries are right turns; at `only_straight_on` junctions all listed turns are left or right; at `only_right_turn` junctions they are left turns. Found in the RR firmware (2026-09-28): `rpmod` `sub_06322c` reads the range from `+0x12` and `sub_01fd80` splits the entries by flag bit 0 into start-node and end-node lists (≤ 8 each).
 
 **Section 11 (`T[0x13]` = 6 B): signposts.** Pointed to by `+T[0x09]+4`. Each entry is `u16` destination text, `u16` route-number text or 0, and a `u16` flag 0/1. 984 of 985 destination pointers resolve to strings, e.g. `norwich` / `a11`, `bury st. edmunds((a14))`, `london stansted airport`, `((m11))`. Used by 10–11% of class 0–1 segments, ~0% of residential ones (CD-ID 21594).
 

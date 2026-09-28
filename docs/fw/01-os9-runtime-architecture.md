@@ -1,5 +1,7 @@
 # OS-9 Runtime Architecture & Routing Engine IPC
 
+> **Provenance (2026-09-28):** the listings analysed here (`dbq/*.asm`, `rpmod.asm`) are from the **Philips CARIN CC-93** (m68k, 1993) on `NAV_SW(v32).iso`, a CD-only BMW platform. The unit that reads the DB-REL 34 DVDs is the RoadRunner (MIPS), whose `rpmod`/`dbq` live in `/V_2/RR/*/app_sw/bsw2`. See [`03-firmware-provenance.md`](03-firmware-provenance.md).
+
 This document describes the runtime execution architecture of the navigation routing engine (`rpmod`, `dbq`, etc.) on the OS-9/68k RTOS, discovered by reverse engineering the firmware.
 
 ## 1. Module Overview and Layout

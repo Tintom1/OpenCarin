@@ -1,5 +1,7 @@
 # OS-9 DBQ Engine IPC & Block Resolution
 
+> **Provenance (2026-09-28):** the listings analysed here (`dbq/*.asm`, `rpmod.asm`) are from the **Philips CARIN CC-93** (m68k, 1993) on `NAV_SW(v32).iso`, a CD-only BMW platform. The unit that reads the DB-REL 34 DVDs is the RoadRunner (MIPS), whose `rpmod`/`dbq` live in `/V_2/RR/*/app_sw/bsw2`. See [`03-firmware-provenance.md`](03-firmware-provenance.md).
+
 This document details the mechanics of how the firmware queries and processes navigation data (specifically block type `0x0C`), based on the reverse engineering of the Database Query Client (`dbq/dbc.asm`).
 
 ## 1. Disassembler Misidentification of Library Thunks
