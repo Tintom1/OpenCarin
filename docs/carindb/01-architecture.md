@@ -677,6 +677,12 @@ picked on the map. A name blob must end on the NUL that closes its last string, 
 the discs does: the unit's decode buffer is not zeroed, and without that NUL the last name ran on
 into leftover bytes (`HELLO WORLD ü $°%ú`).
 
+Once a destination with a post town is set (the `T.` in `T.-CUSTOM`), the CNI1's street
+selection lists the post town's streets (its whole `0x0E` list, e.g. Truro's 1,443 entries with
+their localities: `a30, blackwater`), not those of the city that was picked; picking the city
+again brings its own list back. This is the unit's normal behaviour (checked on an unedited
+village), so a rename meant to be found this way must also be made in the post town's list.
+
 ### 4.5 `CARINET` — Event Text Catalog (independent block space)
 
 ```
