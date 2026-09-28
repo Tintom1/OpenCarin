@@ -404,69 +404,70 @@ low byte = prefix length (1).
 `offset`/`count` index SECTION_0 of the referenced `0x0A` block
 (stride 8, verified: `0x30 +1*8 = 0x38`, `0x38 +4*8 = 0x58`, …).
 
-### 4.4 `0x0A` — Country Table (sectors 9 and 13, 4 sectors, zlib → 5120 bytes)
+### 4.4 `0x0A` — Country Table
+
+Checked on all four discs (CD-ID 2952, 21594, 21708, 21734); tool `local/tools/country0a.py`.
+
+| Disc | Blocks | Countries | Record size |
+|---|---|---|---|
+| CD-ID 2952 (DB-REL 22) | 1 (sector 5, plain) | 19 (England, Scotland and Wales are separate entries, all with country ID `0xDF`) | 44 B |
+| CD-ID 21594 (DB-REL 34) | 1 (sector 4, plain) | 2 (Ireland, United Kingdom) | 56 B |
+| DVD 21708, DVD 21734 | 2 (sectors 9 and 13, zlib → 5120 B) | 44 + a pseudo-country `europe` (ID `0x400`, code `eu`) in the first block only; the `0x0D` counts differ between the two blocks (meaning unknown) | 56 B |
 
 ```
-+0x08 SECTION_DESCRIPTOR[4] = {0x0030,44}, {0x0190,44}, {0x0000,0}, {0x0B30,128}
-+0x30  SECTION_0: 44 records of  8 bytes -> ">HHI"  (key, count, ptr-to-SECTION_1)
-+0x190 SECTION_1: 44 records of 56 bytes -> country record (below)
-+0xB30 SECTION_3: 128 records of 12 bytes -> ">IHHHH" block references
-                  BLOCK_ID | offset | count | subtype | group
++0x08 SECTION_DESCRIPTOR[4] = {S0,n}, {S1,n}, {0,0}, {S3,m}      (DVD 21708: {0x30,44},{0x190,44},{0,0},{0xB30,128})
+S0: n records of 8 bytes, alphabetical by name -> ">HHI"
+    NAME_OFF  (u16)  offset of the country name (lowercase, NUL-terminated) in this block
+    LANGUAGE  (u16)  1 Dutch, 2 English, 3 French, 4 German, 5 Italian, 6 Spanish, 7 Swedish,
+                     10 Danish, 11 Catalan, 12 Finnish, 14 Norwegian, 15 Portuguese, 18 Polish,
+                     19 Czech, 20 Slovak, 21 Russian, 23 Slovenian, 24 Lithuanian, 25 Bosnian,
+                     26 Croatian, 27 Latvian, 255 none. (Andorra is 0 on CD-ID 2952, 11 on the DVDs.)
+    REC_OFF   (u32)  offset of the country record in S1
+S1: n country records (below)
+S3: m records of 12 bytes -> ">IHHHH"
+    BLOCK_ID (u32) of a 0x11 block | offset | count | POI category | text base
+    The category is a 0x06 POI category code (20, 32, 35, 37, 38, 39, 40, 52, 53, 57, 58 seen).
+    Only countries with full data have S3 entries, so this is probably a per-country name index
+    for a few POI categories. "text base" is always NAME_OFF of the first S0 entry.
 ```
+The `0x0B` block indexes S0 by initial letter (§4.3).
 
-**Country record (56 bytes), verified across all 44:**
+**Country record** (DB-REL 34: 56 bytes; DB-REL 22: the first 44 bytes, ending after `+0x2A`):
 
 ```
  off  size  field
- 0x00   2   UNKNOWN (always 0x0000)
- 0x02   4   NAME_PTR      (u32) — high16 = name segment, low16 = offset. 6 distinct
-                          segments observed: 6C2E 9A30 F931 CA2F 112E 12A6
- 0x06   2   UNKNOWN (u16) — 0x0006..0x0037
- 0x08   4   0x0000000B    constant across all records
- 0x0C   4   0x00000016    constant
- 0x10   4   0x00000021    constant
- 0x14   4   0x0000002C    constant (= 44 = number of countries)
- 0x18   2   SEC3_OFFSET   offset in SECTION_3 (0 = no entry)
- 0x1A   2   SEC3_COUNT    number of 12-byte records
- 0x1C   2   0x01F4 (500)  \
- 0x1E   2   0x012C (300)   |  DEFAULT_SPEED[4] — constants in this DB
- 0x20   2   0x03E8 (1000)  |  (unit: presumably 0.1 km/h; UNKNOWN)
- 0x22   2   0x01F4 (500)  /
- 0x24   4   FLAGS         0x00000000 / 0x00000001 / 0x00010000
-                          **0x00010000 only for `ie` and `gb`** -> left-hand traffic
- 0x28   2   COUNTRY_ID    id used throughout the DB (at=0x0E, be=0x15, cz=0x38,
-                          de=0x51, dk=0x39, es=0xC4, fr=0x49, gb=0xDF, it=0x69,
-                          nl=0x96, no=0xA0, ch=0xCD, se=0xCC, …)
- 0x2A   2   FLAGS2        0x0000 or 0x0004
- 0x2C   2   COVERAGE      3 = full coverage, 1 = reduced coverage
-                          (1 for by, md, al, ua, gi, mc… )
- 0x2E   2   ISO_CC        2 chars ISO-3166-1 alpha-2 ASCII: "ad","be","de",…
- 0x30   2   UNKNOWN (0x0000)
- 0x32   2   REGION        "eu"
- 0x34   4   UNKNOWN (0x00000000)
+ 0x00   4   CITY_INDEX    BLOCK_ID of a 0x0D block (upstream read 0x02 u32 as a NAME_PTR;
+ 0x04   2                 offset in that block       it is this BLOCK_ID, offset and count)
+ 0x06   2                 count: about the number of initial letters of the country's
+                          city names (Monaco 5, Vatican 5, Germany 31–41), so probably
+                          the country's city-name index by first letter
+ 0x08  16   four u32: 11, 22, 33, 44 on DB-REL 34; 111,111,111 × 1..4 on CD-ID 2952.
+            The same 16 bytes are in the 0x13 build-info block. A placeholder or format
+            signature, not country data
+ 0x18   2   S3_OFFSET     offset of the country's first S3 record (0 = none)
+ 0x1A   2   S3_COUNT
+ 0x1C   8   4 × u16: 500, 300, 1000, 500 for every country on every disc, 0 for `europe`.
+            Upstream reads them as default speeds in 0.1 km/h; nothing country-specific
+            supports that
+ 0x24   2   LEFT_HAND     1 only for Ireland and the United Kingdom (England, Scotland, Wales
+                          on CD-ID 2952). Gibraltar, which drives on the right, has 0
+ 0x26   2   UNKNOWN       1 for be, cz, de, gi, li, lu, me, nl, at, ch, sk, rs; else 0
+ 0x28   2   COUNTRY_ID    the country's position in the English-name order of ISO 3166
+                          (al 0x02, ad 0x05, at 0x0E, … gb 0xDF, va 0xE5), with Serbia (0xF5)
+                          and Montenegro (0xF6) appended at the end
+ 0x2A   2   FLAGS2        4 on most countries without S3 entries (eastern Europe, the Nordics),
+                          2 on `europe`, else 0
+ --- DB-REL 34 only ---
+ 0x2C   2   COVERAGE      3 full, 1 reduced (by, md, al; ua and gi on DVD 21708 only), 0 `europe`
+ 0x2E   2   ISO_CC        ISO 3166-1 alpha-2 ("de", "at", "ie", "gb", "me")
+ 0x30   2   0
+ 0x32   2   REGION        "eu" on the DVDs, "--" on CD-ID 21594
+ 0x34   4   0
 ```
 
-Consistency check of `SEC3_OFFSET/COUNT`:
-`ad` 0x0B30+2·12 = 0x0B48 = `be`; `be` 0x0B48+8·12 = 0x0BA8 = `cz`;
-`cz` 0x0BA8+8·12 = 0x0C08 = `dk`; `de` 0x0C68+9·12 = 0x0CD4 = `es`. ✅
-
-```python
-COUNTRY_FMT = ">H I H 4I HH 4H I H H H 2s H 2s I"
-# better to use explicit offsets:
-COUNTRY_RECORD_SIZE = 56
-def parse_country(d, off):
-    name_ptr  = struct.unpack_from(">I", d, off + 0x02)[0]
-    sec3_off, sec3_cnt = struct.unpack_from(">HH", d, off + 0x18)
-    speeds    = struct.unpack_from(">4H", d, off + 0x1C)
-    flags     = struct.unpack_from(">I",  d, off + 0x24)[0]
-    cid       = struct.unpack_from(">H",  d, off + 0x28)[0]
-    coverage  = struct.unpack_from(">H",  d, off + 0x2C)[0]
-    iso_cc    = d[off + 0x2E: off + 0x30].decode("latin-1")
-    region    = d[off + 0x32: off + 0x34].decode("latin-1")
-    return dict(name_ptr=name_ptr, sec3=(sec3_off, sec3_cnt), speeds=speeds,
-                left_hand_traffic=bool(flags & 0x00010000), country_id=cid,
-                coverage=coverage, iso_cc=iso_cc, region=region)
-```
+`ISO_CC` is not what the CNI1 displays: with CD-ID 21594 the unit shows the international
+vehicle registration code "IRL" for Ireland, not "ie". The firmware maps the country to that
+code itself, probably from `COUNTRY_ID`. CD-ID 2952 has no code field at all.
 
 ### 4.5 `CARINET` — Event Text Catalog (independent block space)
 
