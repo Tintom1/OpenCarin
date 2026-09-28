@@ -66,7 +66,7 @@ While the foundation is cracked, building a full compiler from OpenStreetMap req
 * Unlike POI (`0x06`) and feature (`0x16`) blocks, road network parcels (`0x0E`) and street name parcels (`0x10`) have no explicit bounding box in their headers.
 * They are indexed hierarchically through index blocks (`0x0D`, `0x0F`, `0x11`). We need to document the exact lookup chain from coordinate / region to parcel block.
 * `0x0E` is now georeferenced indirectly: every `SECTION_2` record names a `0x00` tile, which has a bbox. `0x10` POI details carry absolute coordinates. `0x0C` is still open.
-* The spatial lookup chain for the tiled types is `0x07` (layer directory and quadtree root) → `0x08` (grid of cells) → `0x09` (the tiles in a cell); it covers every `0x00`–`0x03`, `0x06`, `0x14`–`0x16` and `0x1C`–`0x1E` block on CD-IDs 21594 and 21708. See [`docs/carindb/02-geo.md`](docs/carindb/02-geo.md) §7.3.
+* The spatial lookup chain for the tiled types is `0x07` (layer directory and quadtree root) → `0x08` (grid of cells) → `0x09` (the tiles in a cell); it covers every `0x00`–`0x03`, `0x06`, `0x14`–`0x16` and `0x1C`–`0x1E` block on CD-IDs 2952, 21594 and 21708. See [`docs/carindb/02-geo.md`](docs/carindb/02-geo.md) §7.3.
 
 ### 3. Decoder Ports for the Remaining Types 🟠 High
 * Port the bit-packing decoder logic from MIPS firmware (`db_pub`) for the remaining block types into Python (`carin/parser/cf1/`).

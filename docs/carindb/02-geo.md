@@ -117,9 +117,13 @@ its side is the root side divided by a power of two and its corners are on that 
 | CD-ID 21708 | −75.00°, −203.91° | 3 · 2^29 | the 98,304-unit grid below is `3 · 2^29 / 2^14` |
 
 The root square is not the data's extent (on CD-ID 21708 it reaches −203.9° latitude); it
-is only the quadtree's frame. On CD-ID 2952 every `0x08` entry points to an empty `0x09`
-(17,057 blocks with no records, 11% of that disc), so DB-REL 22 finds its tiles some
-other way; how is not known.
+is only the quadtree's frame.
+
+CD-ID 2952 (DB-REL 22) uses the same scheme with eight layers (no `0x1C`–`0x1E`), and its
+`0x09` nodes reach every tile: all 22,594 `0x00`, 730 `0x06`, 900 `0x01`, 1,269 `0x02`,
+2,255 `0x03` and all `0x14`–`0x16` blocks. It differs in one detail: an empty cell is not
+0 in the grid but points to an empty `0x09` block (13,528 of its 17,057 `0x09` blocks,
+most of the 11% of the disc that `0x09` takes up there).
 
 ### 7.4 Bounding box by block type
 
