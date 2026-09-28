@@ -336,22 +336,96 @@ def text_end(dst: bytes, start: int) -> int:
     return min(last + 1, len(dst) - 1)
 
 
-def enc_text(bw: BitWriter, dst: bytes, start: int, end: int, ptrbits: int) -> None:
+def _char_bits(c: int) -> int | None:
+    """Bits dec_text needs for one literal byte, or None if it has no code."""
+    i = CHARMAP.find(bytes([c]))
+    if 0 <= i < 2:
+        return 3
+    if 2 <= i < 6:
+        return 4
+    if 6 <= i < 14:
+        return 5
+    if 14 <= i < 14 + 0x1C or 0x26 < c < 0x80:
+        return 9
+    return None
+
+
+def choose_words(blob: bytes, n: int = 6, maxlen: int = 31) -> list[bytes]:
+    """Pick up to n dictionary words for a name blob, greedily by bits saved.
+
+    A word is 7-bit bytes, at most 31 long; each use costs 9 bits instead of
+    its letters, and each word costs 5 + 7 * len bits in the blob's header.
+    Occurrences are counted without overlap, after the words already chosen.
+    """
+    cost = [_char_bits(c) or 9 for c in blob]
+    work = list(blob)                       # chosen words are masked with -1
+    words = []
+    for _ in range(n):
+        best, best_gain = None, 0
+        for L in range(2, maxlen + 1):
+            seen: dict[tuple, list] = {}
+            for p in range(len(work) - L + 1):
+                key = tuple(work[p:p + L])
+                if -1 in key or any(x >= 0x80 for x in key):
+                    continue
+                st = seen.setdefault(key, [0, -L])
+                if p >= st[1] + L:          # no overlap with the previous counted use
+                    st[0] += 1
+                    st[1] = p
+            for key, (cnt, _last) in seen.items():
+                if cnt < 2:
+                    continue
+                bits = sum(_char_bits(x) or 9 for x in key)
+                gain = cnt * (bits - 9) - (5 + 7 * L)
+                if gain > best_gain:
+                    best, best_gain = bytes(key), gain
+        if best is None:
+            break
+        words.append(best)
+        p = 0
+        while p <= len(work) - len(best):
+            if tuple(work[p:p + len(best)]) == tuple(best):
+                work[p:p + len(best)] = [-1] * len(best)
+                p += len(best)
+            else:
+                p += 1
+    return words
+
+
+def enc_text(bw: BitWriter, dst: bytes, start: int, end: int, ptrbits: int,
+             words: list[bytes] | None = None) -> None:
     """Inverse of dec_text: write dst[start..end] (end inclusive) as a name blob.
 
-    No dictionary words are used (all six are empty), so the output can be
-    longer than the original encoder's but decodes to the same bytes. An empty
-    range (end < start) writes the (0, 0) "no blob" marker.
+    `words` are the blob's dictionary (at most six 7-bit strings of up to 31
+    bytes); None picks them with choose_words(), [] writes none. Uses are
+    matched greedily, longest word first. The bits need not match the
+    original encoder's, but they decode to the same bytes. An empty range
+    (end < start) writes the (0, 0) "no blob" marker.
     """
     if end < start:
         bw.put(ptrbits, 0)
         bw.put(ptrbits, 0)
         return
+    blob = bytes(dst[start:end + 1])
+    if words is None:
+        words = choose_words(blob)
+    if len(words) > 6 or any(len(w) > 31 or any(x >= 0x80 for x in w) for w in words):
+        raise Cf1Error("dictionary: at most six 7-bit words of up to 31 bytes")
     bw.put(ptrbits, start)
     bw.put(ptrbits, end)
-    for _ in range(6):
-        bw.put(5, 0)
-    for p in range(start, end + 1):
+    for k in range(6):
+        w = words[k] if k < len(words) else b""
+        bw.put(5, len(w))
+        for x in w:
+            bw.put(7, x)
+    order = sorted((w for w in words if w), key=len, reverse=True)
+    p = start
+    while p <= end:
+        w = next((w for w in order if dst[p:p + len(w)] == w and p + len(w) <= end + 1), None)
+        if w is not None:
+            bw.put(2, 3); bw.put(7, 0x21 + words.index(w))
+            p += len(w)
+            continue
         c = dst[p]
         i = CHARMAP.find(bytes([c]))
         if 0 <= i < 2:
@@ -366,6 +440,7 @@ def enc_text(bw: BitWriter, dst: bytes, start: int, end: int, ptrbits: int) -> N
             bw.put(2, 3); bw.put(7, c)
         else:
             raise Cf1Error(f"name blob byte {c:#04x} at {p:#x} has no CF=1 text code")
+        p += 1
 
 
 def decode_type00(ctx: Cf1Context) -> None:
