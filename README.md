@@ -59,7 +59,7 @@ While the foundation is cracked, building a full compiler from OpenStreetMap req
 * These field meanings come from disc data (structure and cross-checks), not from firmware.
 * **Still needed**:
   * Confirm how the firmware uses these fields by tracing the routing and query engines in the disassembler (e.g. `db_pub+0x1e98` in Mk3 firmware or `pbp` in CC-93).
-  * Where the router gets its topology: no node or neighbour references have been found in the decoded `0x0E` fields.
+  * Where the router gets its topology: not from `0x0E`. The road graph is in `0x00`–`0x03`: nodes, next-segment-at-node pointers, tile-edge links, one-way, length, bearings, road class, forbidden turns and signposts, plus links between the detail levels. Several of these are confirmed in the CC-93 route planner (`rpmod`). See [`docs/carindb/03-road-network.md`](docs/carindb/03-road-network.md) §6.7.
 * **Crucial Question**: Does the firmware route planner rely on **precomputed graph shortcuts / hierarchical boundaries** between parcels, or does it dynamically traverse the graph at runtime using topology and costs? (See [docs/PROMPT_SEMANTICA_STRADALE.md](docs/PROMPT_SEMANTICA_STRADALE.md) for full context).
 
 ### 2. Georeferencing Non-BBox Parcels (`0x0C`, `0x0E`, `0x10`) 🔴 Critical
