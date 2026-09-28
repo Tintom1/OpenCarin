@@ -579,12 +579,15 @@ Chain verified: `0x25+0x20=0x45`, `0x45+0x20=0x65`, … `0xA5+0x1A=0xBF`, … �
   `0xF6 = ö` ("österreich"), `0xEB = ë` ("belgië"), `0xF1 = ñ` ("españa"), `0xED = í`.
 * All strings in the DB are **lowercase** (uppercase rendering is performed by the firmware).
 * Terminator: `0x00`. Strings are packed into contiguous blobs at the end of the block.
-* Retrieval: records point to the blob with a 32-bit `NAME_PTR`
-  (`high16` = segment, `low16` = offset within segment) or with a `u16` relative
-  to the current block (used in `0x0C`/`0x0E` parcels, see §6.3).
+* Retrieval: records point to the blob with a `u16` offset relative to the current
+  block (used in `0x0C`/`0x0E` parcels, see §6.3).
 
-> **UNKNOWN**: the resolution of the `high16` of `NAME_PTR` (the 6 segments `6C2E 9A30 F931
-> CA2F 112E 12A6`) has not been determined. It does not correspond to a `BLOCK_ID`.
+> **RESOLVED (2026-09-28, PR #13)**: there is no 32-bit `NAME_PTR` with a segment half. The
+> country record in `0x0A` starts with a `u32 BLOCK_ID`, `u16 offset`, `u16 count`: the root of the
+> country's `0x0D` city-name trie (§4.4, §4.4.1). Read at `+0x02`, those bytes look like
+> "`high16` = low 16 bits of a `0x0D` `BLOCK_ID`, `low16` = offset", which is where the earlier
+> "segments" (`6C2E 9A30 F931 CA2F 112E 12A6`) and the "16-bit truncation vulnerability" came
+> from. Read at `+0x00` the `BLOCK_ID` is complete (87 / 87 roots are `0x0D` blocks on DVD 21708).
 
 ```python
 def carin_str(buf: bytes, off: int) -> str:
@@ -1832,6 +1835,6 @@ python3 scripts/analyze_codec.py --type 0x1E --count 1
 | 5 | Field semantics in `0x0E` SECTION_0/1/2 | ✅ **RESOLVED (revised 2026-09-27)** — street-name directory: A=ptr→street name, C=0 or ptr→locality, D=ptr→S1; S2 = `0x00` tile (`BLOCK_ID`, centre X/Y) + SECTION_4 segment run + even/odd house-number ranges. Checked on CD-IDs 2952, 21594, 21708, 21734. FLAGS = kind of name, B = language code, S1 +3 = has house numbers (§6.3). See §6.3.2. | — |
 | 6 | Georeferencing of parcels `0x0C`/`0x0E`/`0x10` (via `0x0D`/`0x0F`/`0x11`) | ✅ **RESOLVED** — `find_parcel(vol, X, Y) → sector` oracle 10/10 PASS 2026-09-19. Spatial index built from S2 `x_anc`/`y_anc`; cached in `dataset/parcel_index.npz`. **Key**: `0x0D`/`0x0F`/`0x11` are TEXT address-lookup indices (ASCII street/country codes → parcel record ranges), NOT geographic R-trees. See `scripts/find_parcel.py`. | — |
 | 7 | Mapping `BLOCK_TYPE → section_type[]` | not present in data | 🟠 high |
-| 8 | Resolution of `NAME_PTR` high16 (country table) | 6 unidentified segments | 🟡 medium |
+| 8 | Resolution of `NAME_PTR` high16 (country table) | ✅ **RESOLVED 2026-09-28 (PR #13)** — no `NAME_PTR`: `0x0A` record `+0x00` is `BLOCK_ID`/offset/count of the `0x0D` city trie; the "segments" were the low half of that `BLOCK_ID` read at `+0x02`. See §4.4 | — |
 | 9 | Order/role of the 5 `u16` in type `0x04` | ✅ **RESOLVED 2026-09-28** — per-segment house numbers of the linked `0x00` tile: two sides `(f0,f2)`/`(f1,f3)`, `f4` = scheme; `0x0E` S2 ranges are their envelope (98.8%). Open: left/right and start/end orientation. See §6.4 | 🟢 low |
 | 10 | Block checksum / CRC | **none found** | 🟢 no risk |

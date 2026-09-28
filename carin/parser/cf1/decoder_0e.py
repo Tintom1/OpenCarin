@@ -3,6 +3,8 @@ from .core import _walk
 from .constants import *
 import struct
 
+from .decoder_00 import dec_text, enc_text
+
 
 def s2_offset_bits(subrel: int) -> int:
     """Width of the S2 `val1` field (SECTION_4 byte offset >> 1).
@@ -155,6 +157,10 @@ def decode_type0E(ctx: Cf1Context) -> None:
       Sezione 1: archi/attributi   (_dec_0e_s1)
 
     Sezione 2 (decode delta delle coordinate geometriche): _dec_0e_s2.
+
+    The stream ends with the name blob (dec_text, as in type 0x00): without
+    it the section 0 name and locality pointers point past the decoded data.
+    It consumes the stream to within a byte of its end on both CDs.
     """
     ctx.copy_raw(0, ctx.T(T_PROLOG_0E))
     count_N = struct.unpack_from(">H", ctx.copy_raw(-1, 2))[0]
@@ -172,6 +178,9 @@ def decode_type0E(ctx: Cf1Context) -> None:
     _dec_0e_s0(ctx, e1, e2)
     _dec_0e_s1(ctx, e2)
     _dec_0e_s2(ctx, count_N, raw_12, M_hi, M_lo)
+
+    s2_rec = ctx.T(T_REC_S2_0E)
+    dec_text(ctx, floor=e2.off + e2.count * s2_rec)
 
 
 def encode_type0E(decoded: bytes, table: dict, dbrel: int, subrel: int = 9,
@@ -303,6 +312,11 @@ def encode_type0E(decoded: bytes, table: dict, dbrel: int, subrel: int = 9,
 
         bw.put(s2_offset_bits(subrel), val1 >> 1)
         bw.put(M_lo, val2)
+
+    # name blob (dec_text): from the end of section 2 to the last non-zero byte
+    text_start = e2_off + e2_cnt * s2_rec
+    text_end = len(decoded.rstrip(b"\x00")) - 1
+    enc_text(bw, decoded, text_start, text_end, ptrbits)
 
     # ── assemble raw block ────────────────────────────────────────────────────
     prolog    = bytearray(decoded[:prolog_size])

@@ -700,17 +700,15 @@ CF=1 blocks use a dedicated prefix encoder — see [`04-cf1-codec.md`](04-cf1-co
   `0xF6 = ö` ("österreich"), `0xEB = ë` ("belgië"), `0xF1 = ñ` ("españa"), `0xED = í`.
 * All strings are **lowercase** (uppercase rendering is done by firmware).
 * Terminator: `0x00`. Strings are packed into contiguous blobs at block end.
-* Retrieval: records point to the blob with a 32-bit `NAME_PTR`
-  (`high16` = segment, `low16` = offset within segment) or with a `u16` relative to
-  the current block (used in `0x0C`/`0x0E` parcels).
+* Retrieval: records point to the blob with a `u16` offset relative to the current block
+  (used in `0x0C`/`0x0E` parcels).
 
-> **RESOLVED**: `NAME_PTR` `high16` corresponds to the lower 16 bits of a type `0x0D` `BLOCK_ID`.
-> - `NAME_PTR >> 16` gives the block ID (lower 16 bits). There are 10 `0x0D` blocks in sectors 17..406. For example, `0x9A30` maps to `BLOCK_ID` `0x00009A30` (sector 154, length 48).
-> - `NAME_PTR & 0xFFFF` gives the byte offset inside the uncompressed `0x0D` block.
-> - The `0x0D` block contains an 8-byte record at that offset: `>IHH` (`target_block_id`, `metadata`, `target_offset`).
-> - The target block (e.g., `0x0C`) contains the actual municipality/string data. The 44 country names are additionally cached in `0x0A` for faster UI rendering.
->
-> ⚠️ **CRITICAL VULNERABILITY**: Because the `BLOCK_ID` format is `(sector << 8) | length`, taking only the lower 16 bits (`bid & 0xFFFF`) effectively computes `((sector & 0xFF) << 8) | length`. This means **the upper bits of the sector number are lost**! For sectors > 255 (e.g., sector 304 / `0x0130`), the `high16` will be truncated (e.g., `0x302F`), making it impossible to reconstruct the full sector number in O(1) time. To resolve a `NAME_PTR`, a parser **must** pre-scan the volume to build a lookup table mapping the truncated 16-bit IDs to the full 32-bit `BLOCK_ID`s of all `0x0D` blocks.
+> **RESOLVED (2026-09-28, PR #13)**: there is no 32-bit `NAME_PTR` with a segment half. The
+> country record in `0x0A` starts with a `u32 BLOCK_ID`, `u16 offset`, `u16 count`: the root of the
+> country's `0x0D` city-name trie (§4.4, §4.4.1). Read at `+0x02`, those bytes look like
+> "`high16` = low 16 bits of a `0x0D` `BLOCK_ID`, `low16` = offset", which is where the earlier
+> "segments" (`6C2E 9A30 F931 CA2F 112E 12A6`) and the "16-bit truncation vulnerability" came
+> from. Read at `+0x00` the `BLOCK_ID` is complete (87 / 87 roots are `0x0D` blocks on DVD 21708).
 
 ```python
 def carin_str(buf: bytes, off: int) -> str:

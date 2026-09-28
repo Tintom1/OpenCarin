@@ -3,8 +3,8 @@
 > **Status: ✅ VERIFIED (STEP 2 & 3 complete, 2026-09-19).** Block/section structure
 > AND field semantics for `0x0E` are fully verified from firmware traces (S0 `A`/`C` and
 > the S2 fields were reinterpreted from disc data on 2026-09-27: §6.3.1). Spatial
-> lookup via `find_parcel(vol, X, Y)` oracle 10/10 PASS. `0x0D`/`0x0F`/`0x11` = TEXT
-> address-lookup index (not spatial). Type `0x00` field semantics are now KNOWN (map drawing). Types `0x01`–`0x03` are assumed identical.
+> lookup via `find_parcel(vol, X, Y)` oracle 10/10 PASS. `0x0D`/`0x0F`/`0x11` = name
+> tries for letter-by-letter search (not spatial, §6.3.2). Type `0x00` field semantics are now KNOWN (map drawing). Types `0x01`–`0x03` are assumed identical.
 >
 > Source: `../CARINDB_BLUEPRINT_EN.md` §6. Related: CF=1 decoding for these types →
 > [`04-cf1-codec.md`](04-cf1-codec.md); open goals → [`06-objectives-roadmap.md`](06-objectives-roadmap.md).
@@ -203,6 +203,7 @@ Checked on CD-IDs 2952, 21594, 21708 and 21734 (`CF=0`, `CF=1` and `CF=2`; `CF=1
 | Check | Result |
 |---|---|
 | S0 `A` points to a NUL-terminated street name in the text after SECTION_2 | 122,743 / 122,743 records (CD-ID 21708, 150 `CF=2` blocks); same on both CDs |
+| Packed (`CF=1`) blocks: the text is a `dec_text` name blob after S2, as in `0x00` (PR #14; before, the decoder never read it and every name came out empty) | S0 name/locality pointers on text: 259,454 / 259,454 over all 563 `CF=1` blocks of CD-ID 21708; every stream ends within a byte of the data end; decode → `encode_type0E` → decode identical from byte 8 in 150 / 150 |
 | S0 records are in alphabetical order of that name | 97% (CD-ID 21708); accented names account for the rest |
 | S0 `C`, when non-zero, points to a locality string (e.g. `haddington road` → `dublin 4`) | 24,137 / 24,137 (CD-ID 21708) |
 | S2 `+16` is the `BLOCK_ID` of a type `0x00` block with that exact length | 100%: 455,974 records (CD-ID 21594, plain), 6,942 (CD-ID 2952), 23,451 (CD-ID 21708, `CF=2`), 23,724 (CD-ID 21734, `CF=2`) |
@@ -256,42 +257,44 @@ Oracle: for each non-sentinel record with anchor in block's anchor bbox,
 > Firmware listing: `docs/fw/pbp_0x0E_decoder.asm`. Decoder entry `pbp+0x4320`
 > (= `db_pub+0x1e98`); common section loop `pbp+0x40b0`; S2 handler `pbp+0x41c0`; `$694e` = memmove.
 
-### 6.3.2 Types `0x0D` / `0x0F` / `0x11` — TEXT address-lookup index (NOT spatial)
+### 6.3.2 Types `0x0D` / `0x0F` / `0x11` — name tries (letter-by-letter search, NOT spatial)
 
-**Discovery 2026-09-19** (STEP 3): these blocks were initially suspected to be a geographic
-R-tree for parcel lookup. They are in fact an **alphabetical address index**.
-
-Each block holds an array of **12-byte records** with identical layout:
+Letter tries behind the destination entry, in the 12-byte record format of `0x0B`. Full
+description (roots, leaf targets, `0x0C` city record, the rule the original compiler used to
+build `0x0F`, rename tests on a CNI1): [`01-architecture.md`](01-architecture.md) §4.4.1 (PR #13).
 
 ```
-  Offset  Size  Field  Content
-  +0x00   u32   A      BLOCK_ID of target block (0x0C / 0x0E / 0x10 depending on type)
-  +0x04   u8    B_hi   ASCII code — country / street-type code (e.g. 0x61='a'=Albania)
-  +0x05   u8    B_lo   always 0x01
-  +0x06   u16   C      byte offset into target block's S0 section
-  +0x08   u16   D      record count in that range
-  +0x0A   u16   E      always 0x0000 (padding)
+  +0x00   u32   BLOCK_ID of the next level (leaf = 0) or of the target block (leaf = 1)
+  +0x04   u8    letter   '@' (0x40) = the name ends here
+  +0x05   u8    leaf     0 = inner node, 1 = leaf
+  +0x06   u16   offset   of `count` records in that block (trie records, or target records)
+  +0x08   u16   count
+  +0x0A   u16   flags    0 (0x0100 on 0x11 alias records, e.g. IATA codes)
 ```
 
-Hierarchy and block counts:
+| Trie | Blocks (21708) | Root | Leaves point to |
+|------|--------|------|-----------------|
+| `0x0D` city names | 10 | `0x0A` country record `+0x00` (u32 `BLOCK_ID`, u16 offset, u16 count) | `0x0C` city records |
+| `0x0F` road names | 1,661 | `0x0C` city record section 1 `+0x00` | `0x0E` S0 street records |
+| `0x11` POI names | 921 | `0x0A` section 3 / `0x0C` section 3 (per category) | `0x10` POI records |
 
-| Type | Blocks | Target type | Semantics |
-|------|--------|-------------|-----------|
-| `0x0D` | 10 | `0x0C` | Country/language codes → record ranges in `0x0C` S0 |
-| `0x0F` | 1,661 | `0x0E` | Street-name codes → record ranges in `0x0E` S0 |
-| `0x11` | 921 | `0x10` | Street-name codes → record ranges in `0x10` S1 |
+The whole Destination chain is therefore: country (`0x0A`) → `0x0D` → city (`0x0C`) → `0x0F` →
+street (`0x0E` S0) → S2 link → segment run in a `0x00` tile (§6.3.1) → house number per
+segment (`0x04`, §6.4).
 
-The `B_hi` code is an ASCII initial: the first `0x0E` block referenced (sector 235755)
-is in Albania because 'a' is the first letter alphabetically. **This is address-lookup by
-street name, not geographic proximity**. Do NOT use `0x0D`/`0x0F`/`0x11` for spatial
-parcel lookup — use `scripts/find_parcel.py` instead (index from S2 `x_anc`/`y_anc`).
+**Checked on DVD 21708 (2026-09-28)** by walking the tries from both `0x0A` blocks (PR #13 checked
+the CDs): 87 / 87 country roots are `0x0D` blocks; 424 / 424 sampled city leaves point to `0x0C`;
+24,944 / 25,114 city names start with their leaf's prefix (the rest are Danish `ø`/`æ`, which the
+check's accent folding does not map to `o`/`ae`); 423 / 424 cities root a `0x0F` trie; 2,006 /
+2,006 road leaves point to `0x0E`; 15,761 / 15,763 street names (packed blocks decoded with
+the name blob, see §6.3.1) start with their prefix.
 
-> **NAME_PTR Connection & 16-bit Truncation**:
-> The 44 country records in block `0x0A` (Section 1) store a 32-bit `NAME_PTR` pointing into these `0x0D` blocks:
-> - `high16` = `BLOCK_ID & 0xFFFF` of a `0x0D` block (`((sector & 0xFF) << 8) | length`).
-> - `low16` = byte offset into the uncompressed `0x0D` block.
-> - **Truncation Vulnerability**: For sectors > 255 (4 out of 10 `0x0D` blocks in `NAV_DB_21708.ISO`), the upper byte of the sector is discarded. Resolving `NAME_PTR` without a pre-scanned lookup table of `0x0D` blocks is impossible.
-> - The record pointed to in `0x0D` links to an administrative `0x0C` parcel node. For UI display, human-readable country names are directly cached in `0x0A`.
+**Superseded readings.** "`B_hi` = ASCII country/street-type code, `B_lo` always `0x01`" is the
+letter and the leaf flag. The "32-bit `NAME_PTR`" in `0x0A` with its "16-bit truncation
+vulnerability" came from reading the country record at `+0x02` instead of `+0x00`: `+0x02` u32 is
+the low half of the `BLOCK_ID` followed by the offset. Read at `+0x00`, the `BLOCK_ID` is complete
+and nothing is truncated. These tries are still not a spatial index (spatial lookup: `0x07`–`0x09`,
+`02-geo.md` §7.3).
 
 ### 6.4 Type `0x04` (80,825 blocks) — per-segment house numbers ✅ VERIFIED on disc 2026-09-28
 

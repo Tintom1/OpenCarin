@@ -322,6 +322,38 @@ def dec_text(ctx: Cf1Context, floor: "int | None" = None) -> None:
         p += 1
 
 
+def enc_text(bw: BitWriter, dst: bytes, start: int, end: int, ptrbits: int) -> None:
+    """Inverse of dec_text: write dst[start..end] (end inclusive) as a name blob.
+
+    No dictionary words are used (all six are empty), so the output can be
+    longer than the original encoder's but decodes to the same bytes. An empty
+    range (end < start) writes the (0, 0) "no blob" marker.
+    """
+    if end < start:
+        bw.put(ptrbits, 0)
+        bw.put(ptrbits, 0)
+        return
+    bw.put(ptrbits, start)
+    bw.put(ptrbits, end)
+    for _ in range(6):
+        bw.put(5, 0)
+    for p in range(start, end + 1):
+        c = dst[p]
+        i = CHARMAP.find(bytes([c]))
+        if 0 <= i < 2:
+            bw.put(2, 0); bw.put(1, i)
+        elif 2 <= i < 6:
+            bw.put(2, 1); bw.put(2, i - 2)
+        elif 6 <= i < 14:
+            bw.put(2, 2); bw.put(3, i - 6)
+        elif 14 <= i < 14 + 0x1C:
+            bw.put(2, 3); bw.put(7, i - 14)
+        elif 0x26 < c < 0x80:
+            bw.put(2, 3); bw.put(7, c)
+        else:
+            raise Cf1Error(f"name blob byte {c:#04x} at {p:#x} has no CF=1 text code")
+
+
 def decode_type00(ctx: Cf1Context) -> None:
     """db_pub+0x3d04 — decoder del BLOCK_TYPE 0x00.
 

@@ -35,7 +35,7 @@ Every block is readable except one group:
 |---|---|---|
 | CF=0 (plain) | all | ✅ |
 | CF=2 (zlib) | all | ✅ |
-| CF=1 (bit-packed) | `0x00`, `0x0E` | ✅ `carin/parser/cf1/`; `subrel` detected per disc (`CarinVolume.calibrate`), CD layout supported, `dec_text` overwrite fixed (was corrupting ~8% of `0x00` blocks; cause: the missing pass `0x15` sentinel, fixed 2026-09-28) |
+| CF=1 (bit-packed) | `0x00`, `0x0E` | ✅ `carin/parser/cf1/`; `subrel` detected per disc (`CarinVolume.calibrate`), CD layout supported, `dec_text` overwrite fixed (was corrupting ~8% of `0x00` blocks; cause: the missing pass `0x15` sentinel, fixed 2026-09-28); packed `0x0E` name blob decoded and re-encoded (`enc_text`, PR #14: all 563 blocks of 21708 end on the data end) |
 | CF=1 | `0x14`–`0x16`, `0x1C`–`0x1E` | ✅ one decoder, transcribed from RR `db_pub` `sub_004b88` (2026-09-28). Oracle `oracle_14_16.py` qualified on all 20,227 CF=0/CF=2 blocks, then passes all CF=1 blocks: 21708 186/1,446/7,719/318/80/14, 21734 250/2,265/11,049/544/103/14 (`0x14`/`0x15`/`0x16`/`0x1C`/`0x1D`/`0x1E`). The CC-93 port it replaces passed 0 (missing passes, empty-section overwrite). S2 `+0x0e` comes from a last pass no RR build reads (data-derived) |
 | CF=1 `0x00`, DB-REL 34 | passes `0x15`/`0x17` and the `+0x18` pass | ✅ 2026-09-28: pass `0x15` sentinel record (Mk3 and RR read it, the port did not) and pass `0x1B` (`+0x18`, RR `sub_005e6c +0x6e70`). Oracle `oracle_00.py` qualified on all 13,353 CF=0/CF=2 tiles, then passes all CF=1 tiles: 86,107/86,107 (21708), 91,651/91,651 (21734); before, 0 of each. Last bit after pass `0x1B`: a single 1 no firmware reads (`04-cf1-codec.md` §9.11.12) |
 
@@ -48,11 +48,11 @@ Every block is readable except one group:
 | `0x04` | per-segment house numbers of the linked `0x00` tile (one 10-byte record per S4 segment); `0x0E` S2 ranges are their envelope | ✅ · ❓ left/right and start/end orientation | `03-road-network.md` §6.4 |
 | `0x06` | POI spatial index → `0x10` | ✅ | `02-geo.md` §8.1 |
 | `0x07` → `0x08` → `0x09` | country info (§4.2) + spatial index: layer directory, quadtree grid, cell → tiles | ✅ (100% of tiles reached on 21708) · 🟡 `0x09` internals, layer parameters | `02-geo.md` §7.3 |
-| `0x0A` | country table (NAME_PTR, DEFAULT_SPEED) | ✅ | `01-architecture.md` §4.4 |
+| `0x0A` | country table: `0x0D` city-trie root, language, left-hand traffic, `COUNTRY_ID`, ISO code, per-category `0x11` POI-trie roots | ✅ · ❓ `+0x1C` (500/300/1000/500 everywhere), `+0x26` | `01-architecture.md` §4.4 (PR #13) |
 | `0x0B` | alphabetical index | 🟡 | `01-architecture.md` §4.3 |
 | `0x13` | CD info (zlib) | 🟡 | `01-architecture.md` §4.1 |
-| `0x0C` | locality / admin names | ✅ strings · 🟡 S0/S1/S3 semantics | `03-road-network.md` §6.6 |
-| `0x0D` / `0x0F` / `0x11` | alphabetical address index → `0x0C` / `0x0E` / `0x10` | ✅ | `03-road-network.md` §6.3.2 |
+| `0x0C` | city records: name, post town, `0x0F` road-trie root, city POI tries, city-centre `0x00` segment | ✅ S0, S1 · 🟡 S5 brand lists | `01-architecture.md` §4.4.1 (PR #13), `03-road-network.md` §6.6 |
+| `0x0D` / `0x0F` / `0x11` | letter tries (city / road / POI names) → `0x0C` / `0x0E` / `0x10`; build rule for `0x0F` known | ✅ (checked on DVD 21708 too) · ❓ `0x0D` split rule | `03-road-network.md` §6.3.2, `01-architecture.md` §4.4.1 |
 | `0x0E` | **street-name directory**: name, kind, language, locality → runs of `0x00` segments + house-number ranges | ✅ | `03-road-network.md` §6.3.1 |
 | `0x10` | POI records (name, type, address, phone) | ✅ | `02-geo.md` §8.1.1 |
 | `0x14`–`0x16`, `0x1C`–`0x1E` | background layers (sea, forest, built-up, rivers, rail) per zoom | ✅ categories | `02-geo.md` §8.4 |
@@ -72,6 +72,9 @@ Every block is readable except one group:
 | 98,304 tile grid is universal | follows from the `0x07` root square; DVD-specific value | PR #11 |
 | `find_parcel` indexes `0x0E` by S2 anchors | S2 `+0/+4` are the centres of linked `0x00` tiles; the real spatial index is `0x07`–`0x09` | PR #10, #11 |
 | Packed `0x00` tiles carry a `+0x18` pass no firmware reads, behind a head of unknown content | RR reads it as pass `0x1B`; the head came from the port skipping the pass `0x15` sentinel | RR `sub_005e6c`, `04-cf1-codec.md` §9.11.12 |
+| `0x0A` holds a 32-bit `NAME_PTR` whose high half is a truncated `0x0D` block ID | `+0x00` is a full `BLOCK_ID` + offset + count (city-trie root); the "truncation" came from reading at `+0x02` | PR #13 |
+| `0x0D`/`0x0F`/`0x11` records carry an ASCII country/street-type code `B_hi`, `B_lo` = 1 | letter + leaf flag of a name trie | PR #13 |
+| `0x04` has 8-byte records (CC-93 `rpmod`) | 10 bytes on the DVD: two sides + numbering scheme, one per S4 segment | `03-road-network.md` §6.4 |
 
 ---
 
@@ -116,7 +119,10 @@ Every block is readable except one group:
 ### D. Writer / compiler
 14. Encoders: plain (CF=0) `0x00`–`0x03` tiles first; then `0x0E`, `0x0D`/`0x0F`/`0x11`,
     `0x06`/`0x10`, `0x14`–`0x16`, the spatial index `0x07`–`0x09`, superblock and
-    `RECORD_SIZE_TABLE`. CF=1 is not needed to generate a valid DB (only `encode_type0E` exists).
+    `RECORD_SIZE_TABLE`. CF=1 is not needed to generate a valid DB (only `encode_type0E` exists;
+    it now keeps the names). Evidence the approach works: renamed streets and a made-up city
+    run on a CNI1 (PR #13, `01-architecture.md` §4.4.1); the destination label still showed the
+    old names, so find which copy it reads before generating whole regions.
 15. Disc image builder (DVD split `DB_0`/`DB_1`, 512-byte unit) and a round-trip test:
     re-encode a region of 21708 and read it back with our reader.
 
