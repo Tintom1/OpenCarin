@@ -426,9 +426,8 @@ S0: n records of 8 bytes, alphabetical by name -> ">HHI"
 S1: n country records (below)
 S3: m records of 12 bytes -> ">IHHHH"
     BLOCK_ID (u32) of a 0x11 block | offset | count | POI category | text base
-    The category is a 0x06 POI category code (20, 32, 35, 37, 38, 39, 40, 52, 53, 57, 58 seen).
-    Only countries with full data have S3 entries, so this is probably a per-country name index
-    for a few POI categories. "text base" is always NAME_OFF of the first S0 entry.
+    The root of a per-country, per-category POI-name trie in 0x11 (see below). The category is
+    a 0x06 POI category code; "text base" is always NAME_OFF of the first S0 entry.
 ```
 The `0x0B` block indexes S0 by initial letter (§4.3).
 
@@ -436,19 +435,18 @@ The `0x0B` block indexes S0 by initial letter (§4.3).
 
 ```
  off  size  field
- 0x00   4   CITY_INDEX    BLOCK_ID of a 0x0D block (upstream read 0x02 u32 as a NAME_PTR;
+ 0x00   4   CITY_TRIE     BLOCK_ID of a 0x0D block (upstream read 0x02 u32 as a NAME_PTR;
  0x04   2                 offset in that block       it is this BLOCK_ID, offset and count)
- 0x06   2                 count: about the number of initial letters of the country's
-                          city names (Monaco 5, Vatican 5, Germany 31–41), so probably
-                          the country's city-name index by first letter
+ 0x06   2                 count: the root of the country's city-name trie (see below), one
+                          entry per initial letter
  0x08  16   four u32: 11, 22, 33, 44 on DB-REL 34; 111,111,111 × 1..4 on CD-ID 2952.
             The same 16 bytes are in the 0x13 build-info block. A placeholder or format
             signature, not country data
  0x18   2   S3_OFFSET     offset of the country's first S3 record (0 = none)
  0x1A   2   S3_COUNT
  0x1C   8   4 × u16: 500, 300, 1000, 500 for every country on every disc, 0 for `europe`.
-            Upstream reads them as default speeds in 0.1 km/h; nothing country-specific
-            supports that
+            The firmware multiplies each by 100 (as it does segment lengths); what they
+            mean is not known. Upstream's "default speeds in 0.1 km/h" is unconfirmed
  0x24   2   LEFT_HAND     1 only for Ireland and the United Kingdom (England, Scotland, Wales
                           on CD-ID 2952). Gibraltar, which drives on the right, has 0
  0x26   2   UNKNOWN       1 for be, cz, de, gi, li, lu, me, nl, at, ch, sk, rs; else 0
@@ -465,9 +463,39 @@ The `0x0B` block indexes S0 by initial letter (§4.3).
  0x34   4   0
 ```
 
+**Firmware.** Mk3 0127 reads the record in two places with identical code, `rpmod+0x46ff0` (the
+route planner, behind an RPC stub) and `dbq+0x213f0` (database queries). Both find the record
+through S0 (`REC_OFF`) and fill a 20-byte struct: the four `+0x1C` values × 100 as u32, a byte
+`+0x24 == 0` (drives on the right), a byte `+0x26 != 0`, and `COUNTRY_ID`, read only when a
+version number the firmware keeps is at least `0x15` (so it is 0 on older data). In `rpmod` the
+right-hand byte is read back by a caller that returns it (`rpmod+0x2761c`), and it defaults to 1
+when the lookup fails. No reader of the other fields was found; they may be used through the RPC.
+
 `ISO_CC` is not what the CNI1 displays: with CD-ID 21594 the unit shows the international
 vehicle registration code "IRL" for Ireland, not "ie". The firmware maps the country to that
 code itself, probably from `COUNTRY_ID`. CD-ID 2952 has no code field at all.
+
+#### 4.4.1 `0x0D` and `0x11`: name tries
+
+Both are letter tries in the same 12-byte record format as `0x0B` (§4.3):
+`u32 BLOCK_ID | u8 letter | u8 leaf | u16 offset | u16 count | u16 flags (0)`.
+With `leaf` = 0 the record points to the next level (`count` records at `offset` in that
+block, usually a `0x0D`/`0x11` block); with `leaf` = 1 it points to `count` consecutive name
+records in the target block. The letter `@` (0x40) marks the end of a name: `ash@` is the leaf
+for exactly "ash", while `ash` leads on to longer names. A range is split only while it is
+large, so leaves sit at depths 1 to 18. This is how the unit offers only the letters that can
+still follow.
+
+| Trie | Root | Leaves point to | Check (`local/tools/trie0d.py`, `trie11.py`) |
+|---|---|---|---|
+| `0x0D` city names | `0x0A` record `+0x00` (one per country) | `0x0C` city records (8 B, name offset first) | every leaf name starts with its prefix: United Kingdom 35,168, Ireland 62,964 (CD-ID 21594); England 26,692, Scotland 2,921 (CD-ID 2952) |
+| `0x11` POI names | `0x0A` section 3 (one per country and category) | `0x10` POI index records (8 B: name offset, type, locality, detail pointer) | 302 / 302 (CD-ID 21594), 187 / 187 (CD-ID 2952) |
+
+The `0x11` categories are the POIs you can search by name: 20 attractions (Guinness Storehouse,
+Madame Tussauds), 32 museums, 35 stadiums, 37 landmarks (Big Ben, Newgrange), 38 theme parks,
+39 national parks, 49 a museum (CD-ID 2952 only), 52 airports (with IATA codes such as `dub`
+and `ork` as alias records, flag `0x0100`), 53 ferry terminals and the Channel Tunnel,
+58 border crossings.
 
 ### 4.5 `CARINET` — Event Text Catalog (independent block space)
 
