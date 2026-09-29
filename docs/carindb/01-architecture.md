@@ -489,14 +489,16 @@ Decompressed to 1024 bytes. After the header: a 2-section descriptor
 +0x00 header (8)
 +0x08 SECTION_DESCRIPTOR[3] = {0x0174, 40}, {0x0264, 13}, {0x0382, 43}
 +0x14 SERVICE_DATA (0x14..0x173)
-      0x0614: 2FE27160  UNKNOWN (u32)
-      0x0618: F1198000 BC7A5000 51198000 1C7A5000   RESERVED (4x i32)
-              NOT the geographic bbox of the data: incompatible with any lon/lat calibration.
-      followed by 12 records of 24 bytes, each repeating the same quartet
+      0x14 + 28*i, i = 0..11: layer directory, 28-byte records (02-geo.md §7.3)
+            u32 BLOCK_ID of the layer's 0x08 grid (i = 8: the 0x1B TMC index)
+            4 x i32 root square F1198000 BC7A5000 51198000 1C7A5000 (same in all 11 layers)
+            4 x u16 layer parameters (meaning unknown)
+      0x164: 16 bytes UNKNOWN
 +0x174 SECTION_0: 40 records of 6 bytes   -> ">HHH" (country_id, seq_id, 0)
                   seq_id = 0x0734..0x075B, consecutive
 +0x264 SECTION_1: 13 records of 20 bytes  -> ">IHHHHHHHH"
-                  field 0 = BLOCK_ID (e.g. 0x6273EC01 -> DB_1), field 5 = country_id
+                  one per TMC location table: BLOCK_ID of its 0x18 index block, table,
+                  first location code, …, COUNTRY_ID (§4.7)
 +0x382 SECTION_2: 43 records  (dimension UNKNOWN)
 +0x750 approx: country names, lowercase ISO-8859-1, delimiter 0x00:
       "österreich\0schweiz\0deutschland\0ceska republika\0españa\0danmark\0
@@ -505,9 +507,11 @@ Decompressed to 1024 bytes. After the header: a 2-section descriptor
 
 > **Update (2026-09-28):** the repeated quartet is the root square of the spatial
 > quadtree, not the data's extent: on CD-ID 21708 it is lon −75.00..214.91, lat
-> −203.91..86.00, side `3 · 2^29`, and `3 · 2^29 / 2^14` is the 98,304-unit tile grid. The
-> 24-byte records around it form the **layer directory**: `u32 BLOCK_ID` of a layer's
-> `0x08` grid, the root square, and the layer's parameters. See `02-geo.md` §7.3.
+> −203.91..86.00, side `3 · 2^29`; tile sides are this side / `2^k` (98,304 is `k = 14`, one
+> size among several, not a grid rule; `02-geo.md` §7.3). The
+> 28-byte records around it form the **layer directory**: `u32 BLOCK_ID` of a layer's
+> `0x08` grid, the root square, and the layer's parameters. See `02-geo.md` §7.3 (checked on
+> every record of DVDs 21708 and 21734 by `scripts/geo/check_spatial_index.py`, 2026-09-29).
 
 ### 4.3 `0x0B` — Alphabetical Index (sectors 7 and 8, 1 sector each)
 
@@ -690,6 +694,145 @@ The `0x0C` block contains administrative region geometry and localized toponyms,
 *   **S1 (24 bytes/record)**: Hypothesis based on dimensions: represents the administrative hierarchy (e.g. Region -> City -> District). The 24-byte size suggests an OS-9 tree-node struct.
 *   **S3 (12 bytes/record)**: Localized name mapping / metadata.
 *   **Name Blob**: The final section of the block (likely S4 or S5) is hypothesized to hold the actual null-terminated string bytes, mirroring the structure used in `0x0E`.
+
+### 4.7 `0x18`, `0x1A`, `0x1B` — TMC indexes (DVD only, 2026-09-29)
+
+These three types are one-level sorted indexes over the two TMC block chains: `0x18` over
+`0x17` (TMC location tables, keyed by location code) and `0x1B` → `0x1A` over `0x19`
+(German TMC locations, keyed by position). Every field below not marked ❓ holds on every
+block of DVD 21708 **and** DVD 21734 (`scripts/routing/check_tmc_index.py [--geometry]`,
+0 failures on both). No firmware reader has been found (see "Firmware" below); the
+evidence is the disc data, the linked `0x00` geometry and a published TMC table list.
+
+```
+0x07 SECTION_1 (13 records of 20 B, one per TMC table)  ─► 0x18 (13 blocks) ─► 0x17 (920 / 1,076 blocks)
+0x07 layer directory (record with a zero root square)    ─► 0x1B (1 block)  ─► 0x1A (1 block) ─► 0x19 (279 / 282 blocks)
+```
+
+**The data chains.** Both `0x17` and `0x19` form one doubly linked chain over all their
+blocks: `+0x0C` next `BLOCK_ID`, `+0x10` previous (0 at the ends); S0 starts at `+0x1C`.
+
+| | `0x17` | `0x19` |
+|---|---|---|
+| `+0x14` | u16 TMC table (below) | first key (`i16 x, i16 y`) |
+| `+0x16` | u16 first location code | |
+| `+0x18` | u16 last location code | last key |
+| S0 record | 100 B (`RECORD_SIZE_TABLE[0x46]`), starts with the u16 location code; codes ascend | 40 B, starts with the key; keys ascend comparing `x`, then `y`, as **unsigned** u16 |
+| Content | the location tables of 13 countries | 92,341 / 93,189 records; keys within Germany (below) |
+
+`0x19` record (40 B), the fields checked so far:
+
+```
++0x00 i16 x, i16 y      key (below)
++0x04 u32 BLOCK_ID of a 0x00 tile (0 on 9,336 / 10,224 records)
++0x08 u32 BLOCK_ID  ┐ link to another 0x19 record: (+0x08, +0x16) and (+0x0C, +0x18)
++0x0C u32 BLOCK_ID  │ are (BLOCK_ID, byte offset); every non-null link lands on a record
++0x10 u16 ❓, u16 ❓  │ start (133,082 / 133,684 links); 93% of the targets link back.
++0x14 u16           │ +0x14: byte offset of a SECTION_4 segment in the +0x04 tile
++0x16 u16 offset    │ (all 83,005 / 82,965 records with a tile)
++0x18 u16 offset    ┘
++0x1A u16 ❓         +0x1C 5 × u16 ❓
+```
+
+**`0x18` — location-table index (one block per table).**
+
+```
++0x08 SECTION_DESCRIPTOR[1] = {0x0010, n}
++0x0C u16 TABLE              = (LTN << 4) | CC   (TMC location table number, RDS country code)
++0x0E u16 0
+S0: n records of 8 B -> ">IHH"
+      BLOCK_ID of a 0x17 block | first location code in it | 0
+    the table's 0x17 blocks in chain order; the last record (counted in n) is the
+    terminator {0, last location code + 1, 0}
+```
+
+The 13 tables together cover every `0x17` block once. The `0x07` SECTION_1 records
+(§4.2) point to them:
+
+```
+0x07 SECTION_1 (20 B) -> ">IHHHBBHHHH"
++0x00 BLOCK_ID of the 0x18 block    +0x04 TABLE    +0x06 first location code (= 0x18 S0[0])
++0x08 u16 offset of the country name in this 0x07 block ("österreich", "norge", …)
++0x0A u8 1 ❓, u8 1 for no and se, else 0 ❓
++0x0C COUNTRY_ID (0x0A §4.4)        +0x0E 0
++0x10 {u16 offset, u16 count}: a list of `count` u16 COUNTRY_IDs (count 1, the same country)
+```
+
+| TABLE | LTN | CC | Country | First code 21708 / 21734 | Published (`cc_LTN`) |
+|---|---:|:-:|---|---:|---|
+| `0x01A` | 1 | A | at | 123 / 123 | `aut_A_1` |
+| `0x094` | 9 | 4 | ch | 1 / 1 | `che_4_9` |
+| `0x01D` | 1 | D | de | 1 / 1 | `deu_D_1` |
+| `0x192` | 25 | 2 | cz | 1 / 1 | `cze_2_25` |
+| `0x11E` | 17 | E | es | 1 / 1 | `esp_E_17` |
+| `0x099` | 9 | 9 | dk | 1000 / 1000 | `dnk_9_9` |
+| `0x015` | 1 | 5 | it | 1 / 1 | `ita_5_1` |
+| `0x0AC` | 10 | C | gb | 32000 / 1 | `gbr_C_7` (a different UK table) |
+| `0x31F` | 49 | F | no | 1 / 1 | `nor_F_49` |
+| `0x118` | 17 | 8 | nl | 30010 / 30010 | `nld_8_17` |
+| `0x20F` | 32 | F | fr | 1 / 1 | `fra_F_32` |
+| `0x016` | 1 | 6 | be | 1 / 1 | `bel_6_1` |
+| `0x21E` | 33 | E | se | 1 / 1 | `swe_E_33` |
+
+The low nibble is the RDS country code of the country `0x07` gives for the table in all
+13 cases. The published TMC table list (the `TMCINFO.ini` quoted in
+[redsea issue #97](https://github.com/windytan/redsea/issues/97), file names
+`country_CC_LTN_…`) gives the same CC and LTN for 12 of the 13; for the UK it lists LTN 7,
+the disc LTN 10 (its first code also differs between the two DVDs: 32000 / 1). The same
+list gives Germany's table the extent 47.387..55.017° N, the range of the `0x19` keys.
+
+**`0x1A` — position index over `0x19`.**
+
+```
++0x08 SECTION_DESCRIPTOR[1] = {0x0010, n}          (n = 279 / 282 = number of 0x19 blocks)
++0x0C u16 0x0104 ❓           +0x0E u16 0
+S0: n records of 8 B -> ">Ihh"
+      BLOCK_ID of a 0x19 block | its first key (x, y)
+    every 0x19 block in chain order; then a terminator {0, last key} NOT counted in S0
+```
+
+**`0x1B` — root of the `0x19` index.** One block, one record of 22 B (the size of
+`RECORD_SIZE_TABLE[0x9D]`):
+
+```
++0x08 SECTION_DESCRIPTOR[1] = {0x000C, 1}
++0x0C u32 BLOCK_ID of the 0x1A block
++0x10 i16 x, i16 y           first key (= 0x1A S0[0])
++0x14 i32 X0, i32 Y0         key origin: 0x0E678A6A, 0x11627AEA = 13.5° E, 52.5° N
++0x1C u16 0x0104 ❓, u16 0x1000 ❓  (same values on both DVDs)
++0x20 u16 COUNTRY_ID          0x51 = de
+```
+
+The `0x07` layer directory (§4.2, `02-geo.md` §7.3) lists `0x1B` among the map layers,
+with an all-zero root square and parameters: `0x19` is a georeferenced layer with its own
+index instead of the quadtree.
+
+**The `0x19` key is a position in 100 m steps.** With `φ`, `λ` the record's latitude and
+longitude and `φ0`, `λ0` the `0x1B` origin, in radians:
+
+```
+y = round(R · (φ − φ0) / 100)
+x = round(R · (λ − λ0) · cos φ / 100)        R ≈ 6,371 km (mean Earth radius)
+```
+
+Fitted on every record with a tile, against the midpoint of its linked `0x00` segment
+(`--geometry`): R = 6,370,947 / 6,370,957 m (y / x, DVD 21708), 6,370,932 / 6,370,954 m
+(DVD 21734), ±~35 m (2σ); intercept +0.01..+0.02 steps; residual sd 1.2 steps.
+`cos φ0` instead of `cos φ` leaves a residual of 93 steps. The mean residual is within
+±0.04 step for negative and for positive keys on both axes and both DVDs; truncation would
+give −0.5 / +0.5, so the key is rounded to nearest. The fit does not separate
+6,371,000 m from radii within ~50 m of it. Sorting `x` as unsigned puts the east half
+(0..1052) before the west half (−5317..−1).
+
+**Firmware.** No reader found. Checked and not block readers: the RR (`bsw2`) `hdltmc`
+switch at `+0x2f620` compares its argument with 1, 2, 5–7, 0x10–0x15, 0x17–0x1B and 0x2A
+on double-precision arguments and stores `0x7FF00000` (IEEE infinity); the 0x17..0x1B
+immediates in `dbc` are the third argument of a call with `0x198, 0xE` (the error path);
+the 4996 at `dbd +0x9370` is a PIC prologue offset. No module
+holds the scale as a literal: no float or double in 1110..1114 (100 m/°), 111,000..111,400
+(m/°), 6.36..6.38e6 (R), 0.0174 (°→rad) as a data word or as a `lui`/`ori` pair, and no
+matching integer immediate. `db_pub`, `db_bh_read` and `dbd` have no dedicated handler (the
+blocks are CF=0 or CF=2).
 
 ---
 

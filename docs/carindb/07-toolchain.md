@@ -11,10 +11,11 @@
 
 | File | Function |
 |---|---|
-| `carin/parser/iso.py` | ISO 9660 reader (no mount), `CarinVolume` over `DB_0+DB_1` (DVD, 512-byte unit) or a single `/carindb` (CD, 2048-byte unit), `calibrate()` (detects `subrel`), `CarinBlock`, `find_bbox` (98,304 grid: DVD only), `to_wgs84`/`to_carin` |
+| `carin/parser/iso.py` | ISO 9660 reader (no mount), `CarinVolume` over `DB_0+DB_1` (DVD, 512-byte unit) or a single `/carindb` (CD, 2048-byte unit), `calibrate()` (detects `subrel`), `CarinBlock`, `find_bbox` (superseded: 98,304 rule, see `02-geo.md` §7.4), `to_wgs84`/`to_carin` |
 | `carin/parser/calibration.py` | `GeographicCalibrator` (Levenberg-Marquardt + grid search) |
 | `carin/parser/compression.py` | `CompressionAnalyzer`, `LzssSweep`, `sweep_lzss`, `decode_lzw`, `decode_lz4_block`, `entropy`, `plain_prefix`, `score_output` |
 | `carin/parser/cf1/` | **CF=1 bit-packing codec** — `decode_block(raw, table, dbrel, subrel, sector_size)` for `0x00`, `0x0E`, `0x14`–`0x16`, `0x1C`–`0x1E`; `decode_ctx` (same, returns the context for oracles); `encode_type0E`; `decode_s2_links` (`0x0E` S2 → `0x00` tile, segment run, house numbers); `probe.py` (per-disc `subrel` detection); parameterized by `RECORD_SIZE_TABLE` — see [`04-cf1-codec.md`](04-cf1-codec.md) |
+| `carin/parser/spatial.py` | spatial index `0x07` → `0x08` → `0x09`: `tiles_at(vol, layer, lon, lat)`, `SpatialIndex`, parsers for the layer directory, grid and cell blocks — see [`02-geo.md`](02-geo.md) §7.3 (DB-REL 34 only) |
 | `carin/parser/geometry.py` | `road_segments(data, table)`: WGS84 road segments of a decoded `0x00` tile with name, locality, display class; `tile_frame`, `header_bounds` — see [`02-geo.md`](02-geo.md) §8.3 |
 | `carin/parser/house_numbers.py` | `segment_house_numbers(data)`: per-segment house numbers of a `0x04` block (two sides, scheme), `tile_block_id`, `run_envelope` = the `0x0E` S2 even/odd summary — see [`03-road-network.md`](03-road-network.md) §6.4 |
 
@@ -25,6 +26,7 @@
 |---|---|
 | `extract_anchors.py` | extracts `(name, X, Y)` from `0x16` blocks |
 | `optimize_coords.py` | calibration and residual verification |
+| `check_spatial_index.py` | every rule of the `0x07`–`0x09` layout, tile bbox = union of its items, and `tiles_at` at every tile's centre; `--iso`, `--cf1-rust` (CF=1 bbox via `carindb-rs`); exit 0 only with 0 failures |
 
 ### CF=1 codec — firmware recovery
 | Script | Function |

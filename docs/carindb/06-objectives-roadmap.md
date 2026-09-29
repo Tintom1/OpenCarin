@@ -47,7 +47,7 @@ Every block is readable except one group:
 | `0x01`–`0x03` | coarser levels of the same graph; S8 links a tile to the next level down | ✅ | `03-road-network.md` §6.7 |
 | `0x04` | per-segment house numbers of the linked `0x00` tile (one 10-byte record per S4 segment); `0x0E` S2 ranges are their envelope | ✅ · ❓ left/right and start/end orientation | `03-road-network.md` §6.4 |
 | `0x06` | POI spatial index → `0x10` | ✅ | `02-geo.md` §8.1 |
-| `0x07` → `0x08` → `0x09` | country info (§4.2) + spatial index: layer directory, quadtree grid, cell → tiles | ✅ (100% of tiles reached on 21708) · 🟡 `0x09` internals, layer parameters | `02-geo.md` §7.3 |
+| `0x07` → `0x08` → `0x09` | country info (§4.2) + spatial index: layer directory (12 × 28 B), quadtree grid split over consecutive `0x08` blocks, cell node = column-major grid of `u16` item pointers into a `u32` tile list | ✅ every field of `0x08`/`0x09` and the lookup `carin.parser.spatial.tiles_at` (both DVDs, `scripts/geo/check_spatial_index.py`; 21708: 128,690 / 128,690 tiles; 21734: 144,143 reached from `0x07` + 3,129 `0x06` only through an unreferenced 512² grid) · layer parameters, RR reader `dbq` `0x21270`: param 0 ✅ highest road class of road layers `0x00`–`0x03` (`rpmod` `0x7490c`, checked on every segment of both DVDs), param 1 🟡 lower scale bound (`dbq` `0x5508`, unit ❓), params 2–3 ❓ (not read) · `0x07` `+0x164` trailer: RR read offsets ✅, meaning ❓ | `02-geo.md` §7.3 |
 | `0x0A` | country table: `0x0D` city-trie root, language, left-hand traffic, `COUNTRY_ID`, ISO code, per-category `0x11` POI-trie roots | ✅ · ❓ `+0x1C` (500/300/1000/500 everywhere), `+0x26` | `01-architecture.md` §4.4 (PR #13) |
 | `0x0B` | alphabetical index | 🟡 | `01-architecture.md` §4.3 |
 | `0x13` | CD info (zlib) | 🟡 | `01-architecture.md` §4.1 |
@@ -56,9 +56,10 @@ Every block is readable except one group:
 | `0x0E` | **street-name directory**: name, kind, language, locality → runs of `0x00` segments + house-number ranges | ✅ | `03-road-network.md` §6.3.1 |
 | `0x10` | POI records (name, type, address, phone) | ✅ | `02-geo.md` §8.1.1 |
 | `0x14`–`0x16`, `0x1C`–`0x1E` | background layers (sea, forest, built-up, rivers, rail) per zoom | ✅ categories | `02-geo.md` §8.4 |
-| `0x17`, `0x19` | TMC location names / codes | 🟡 | `03-road-network.md` §6.7 (S12) |
+| `0x17`, `0x19` | TMC locations: `0x17` the location tables of 13 countries (100 B records by location code), `0x19` ~92,000 records in Germany sorted by position, linked to a `0x00` S4 segment and to other `0x19` records; both one linked block chain | ✅ chains, keys, `0x19` tile/segment links (both DVDs) · ❓ other record fields | `03-road-network.md` §6.7 (S12), `01-architecture.md` §4.7 |
 | `0x12` | root / superblock (schema, `RECORD_SIZE_TABLE`, DB-REL) | ✅ | `01-architecture.md` |
-| `0x18`, `0x1A`, `0x1B` | 1–13 blocks each | ❓ | — |
+| `0x18` | TMC location-table index: one block per table (`TABLE = LTN << 4 \| CC`), 0x17 `BLOCK_ID` + first location code; reached from `0x07` S1 | ✅ (both DVDs; CC/LTN match the published TMC list, UK LTN 10 not listed) · ❓ `0x07` S1 `+0x0A` bytes | `01-architecture.md` §4.7 |
+| `0x1B` → `0x1A` | position index over `0x19`: root (key origin 13.5° E 52.5° N, COUNTRY_ID) → one `0x19` `BLOCK_ID` + first key per block; `0x1B` is in the `0x07` layer directory | ✅ (both DVDs): key = 100 m steps on a 6,371 km sphere, `x` scaled by `cos φ`, rounded · ❓ `0x0104`, `0x1000`; no firmware reader found | `01-architecture.md` §4.7 |
 
 ## 3. Corrected conclusions (do not rely on the old text)
 
@@ -70,6 +71,7 @@ Every block is readable except one group:
 | `can_traverse` always returns 1; `rpmod` never reads `0x00` records | rejects class 6 and junction 3/4 unless high nibble 4; reads S4 records | PR #12, RR `sub_01fd80` |
 | `subrel >= 9` follows from DB-REL 34 | per disc (CD 21594 needs 8) | PR #4, issue #6 |
 | 98,304 tile grid is universal | follows from the `0x07` root square; DVD-specific value | PR #11 |
+| On the DVDs all tile edges are multiples of 98,304 from `(0, 0)` | no tile corner is (0 of 128,690 / 147,272); tile sides are root / `2^k`, k = 4…16, down to 24,576; 2,837 / 3,887 tiles have a side not a multiple of 98,304 | `check_spatial_index.py`, issue #20 |
 | `find_parcel` indexes `0x0E` by S2 anchors | S2 `+0/+4` are the centres of linked `0x00` tiles; the real spatial index is `0x07`–`0x09` | PR #10, #11 |
 | Packed `0x00` tiles carry a `+0x18` pass no firmware reads, behind a head of unknown content | RR reads it as pass `0x1B`; the head came from the port skipping the pass `0x15` sentinel | RR `sub_005e6c`, `04-cf1-codec.md` §9.11.12 |
 | `0x0A` holds a 32-bit `NAME_PTR` whose high half is a truncated `0x0D` block ID | `+0x00` is a full `BLOCK_ID` + offset + count (city-trie root); the "truncation" came from reading at `+0x02` | PR #13 |
@@ -88,8 +90,14 @@ Every block is readable except one group:
    §9.11.12): the RR reads it as pass `0x1B`; the "head" was the port's misalignment (missing
    pass `0x15` sentinel). Left open: the single 1 bit after pass `0x1B`; the meaning of `+0x18`
    values 4 and `0x10`; DB-REL < 34 discs.
-3. **Spatial lookup on `0x07`–`0x09`.** Library module that answers "tiles of layer X at
-   (lon, lat)"; replace `find_bbox` (98,304 assumption) and the S2-anchor `find_parcel`.
+3. ~~**Spatial lookup on `0x07`–`0x09`.**~~ Done 2026-09-29 (`02-geo.md` §7.3, issue #20):
+   `carin.parser.spatial.tiles_at(vol, layer, lon, lat)`, checked at the centre of every
+   reached tile on both DVDs. `find_bbox` marked superseded (per-type bbox offsets, §7.4);
+   `find_parcel` kept for `0x0E`, which the disc index does not cover. Layer parameters
+   (2026-09-29): RR reader found (`dbq` `0x21270`, `rpmod` `0x7490c`); param 0 = highest road
+   class on the road layers ✅. Left open: param 0 on area layers, the unit of the param-1
+   scale, params 2–3 (not read by the RR code found), the meaning of the `0x07 +0x164`
+   trailer fields, whether the firmware reads the unreferenced `0x08` grid on 21734, DB-REL < 34.
 4. **Retire superseded code**: `decode_s2_links` (tile link, segment run, house numbers) replaces
    `decode_s2_coords` (kept, marked superseded); remove it with `oracle_s2_coords.py` and any
    script that treats `0x0E` as geometry.
@@ -114,7 +122,11 @@ Every block is readable except one group:
 12. **Routable export**: nodes/edges with length, class, speed, one-way, toll, turn
     restrictions, names, house numbers → GeoPackage + a routing format; check routes against
     OSM/OSRM in a test area.
-13. **Unknown blocks** `0x18`, `0x1A`, `0x1B`, and TMC `0x17`/`0x19`.
+13. ~~**Unknown blocks** `0x18`, `0x1A`, `0x1B`~~ Done 2026-09-29 (`01-architecture.md` §4.7,
+    `scripts/routing/check_tmc_index.py --geometry`, issue #17; DVDs 21708 and 21734): TMC
+    indexes over `0x17` and `0x19`. Left open: the remaining `0x17` and `0x19` record fields;
+    `0x1A`/`0x1B` `0x0104`, `0x1000`; `0x07` S1 `+0x0A`; the firmware reader (none found; the
+    `hdltmc +0x2f620` switch is not one).
 
 ### D. Writer / compiler
 14. Encoders: plain (CF=0) `0x00`–`0x03` tiles first; then `0x0E`, `0x0D`/`0x0F`/`0x11`,

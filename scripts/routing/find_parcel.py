@@ -6,7 +6,9 @@ Allows O(1) geographic lookups to map an arbitrary lon/lat coordinate to the exa
 Note (2026-09-28): the S2 "anchors" are the centres of the 0x00 tiles each 0x0E
 record links to, so this index finds 0x0E blocks that reference tiles near a point.
 The disc's own spatial index is 0x07 -> 0x08 -> 0x09 (docs/carindb/02-geo.md §7.3),
-which does not cover 0x0E. See roadmap item A3.
+which does not cover 0x0E. For "which tile of a layer is at (lon, lat)" use
+carin.parser.spatial.tiles_at instead; this module is kept only for 0x0E, which that
+index does not reach.
 """
 
 from __future__ import annotations
