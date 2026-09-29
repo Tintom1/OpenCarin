@@ -150,7 +150,9 @@ def sections_end(ctx: Cf1Context) -> int:
     """First byte past the last non-empty record section (where the text starts)."""
     t = ctx.table
     recs = [t[T_REC_S0_141516], t[T_REC_S1_141516], t[T_REC_S2_141516],
-            s3_record_size(ctx.dst, t), t[T_REC_E4_141516], t[T_REC_E5_141516]]
+            s3_record_size(ctx.dst, t), t[T_REC_E4_141516]]
+    if ctx.dbrel >= 0x17:           # section 5 and T[0x59] exist from DB-REL 23 on
+        recs.append(t[T_REC_E5_141516])
     hi = t[T_PROLOG_141516]
     for i, rec in enumerate(recs):
         e = ctx.entry(i)
