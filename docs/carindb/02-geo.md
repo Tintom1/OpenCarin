@@ -366,12 +366,16 @@ def to_carin(lon, lat):
  0x04   2   byte offset, within that 0x10 block, of this POI's S0 index record (§8.1.1)
  0x06   2   LOCAL_X    position in tile, step 64        <- sorted ascending
  0x08   2   LOCAL_Y    position in tile, step 64
- 0x0A   2   CATEGORY   (0x0016, 0x0017, 0x001F, 0x0023, 0x0030, …)
- 0x0C   4   0x00000000
- 0x10   4   BRAND_REF  global reference to chain (recurring across blocks)
- 0x14   4   0x00000000
- 0x18   4   0x00000000
+ 0x0A   2   CATEGORY   (12 petrol, 21 hotels, 37 landmarks, 48 towns, …; 01-architecture.md §4.4.1)
+ 0x0C   2   BRAND      offset of the POI's brand in this block's name blob, 0 = no brand
+ 0x0E   2   0, or 1 on a few ports and airports (187 records on CD-ID 2952, 240 on CD-ID 21594)
+ 0x10   4   POI_ID     the 0x10 detail record's +0x1C (§8.1.1); read before as a "brand reference"
+ 0x14   8   0          DB-REL 34 only: the 20-byte form (DB-REL 22) ends at 0x14
 ```
+
+Checked on every record: the brand matches the `0x10` detail's brand (64,433 / 64,433 on CD-ID
+2952, 466,310 / 466,310 on CD-ID 21594), and so does the POI ID. Every block is sorted by
+`LOCAL_X` (730 / 730, 1,652 / 1,652).
 
 **Exact local scale = 64:**
 
@@ -388,12 +392,12 @@ Verified across 2,395 blocks: for each tile size, `max(LOCAL_X) = (X_max−X_min
 | expected `side/64 − 1` | 1535 | 3071 | 6143 | 12287 | 24575 | 49151 |
 
 POI resolution: 64 units = 1.15e−5° ≈ **1.2 m**. Name blob (Latin-1, `\0`-terminated)
-follows the records: **173 distinct names across the whole DB**, all brands/chains
-(banks, fuels, hotels) — no toponyms, no airports. **2,048,403 POIs** extracted.
+follows the records: the brands used in the block (`BRAND`), **173 distinct names across the
+whole DB**, all chains (banks, fuels, hotels). **2,048,403 POIs** extracted.
 
 **Record size is `T[0x32]`, not a constant.** On CD-ID 2952 (DB-REL 22) the record is
-**20 bytes**: the same fields up to `CATEGORY`, then `u32 0`, `u32 BRAND_REF`, with
-the trailing 8 bytes of the 28-byte form absent. Of the five `RECORD_SIZE_TABLE`
+**20 bytes**: the same fields up to `POI_ID`, without the trailing 8 zero bytes of the
+28-byte form. Of the five `RECORD_SIZE_TABLE`
 candidates for 28 bytes listed in `01-architecture.md` (`0x04`, `0x18`, `0x32`,
 `0x43`, `0x4e`), `T[0x32]` is the only one that equals 20 on that disc (28 on
 CD-ID 21594, DB-REL 34).
@@ -410,11 +414,27 @@ The `0x06` blocks are therefore a **spatial index over the `0x10` POI parcels**:
 finding the POIs near a position is a bbox lookup plus one read per tile, with no
 geometry involved.
 
+A branded POI is stored twice in `0x10`, in a category copy and a brand copy (`01-architecture.md`
+§4.4.2). On CD-ID 2952 the `0x06` record points at the brand copy for every branded POI
+(11,643 / 11,643) and at the category copy for the rest; on CD-ID 21594 it points at the
+category copy for all of them.
+
+On a CNI1 (CD-ID 2952), with every `0x06` block's record count set to 0 (and the cities' POI
+roots cut, §4.4.2 of `01-architecture.md`) the unit runs normally but draws no POI icons, and its
+POI category menus come up empty. A block rewritten with our own records (sorted by `LOCAL_X`,
+brands in its name blob) draws and lists them.
+
 #### 8.1.1 Type `0x10` — POI parcel (name, address, phone, absolute position)
 
 All `0x10` blocks on both CD discs are CF=0. The section descriptor at `0x08` has the
 shape `[(o0, n0), (o1, n1), (0,0), (0,0), (o4, n4), (0,0)]`; `o0` is 40 on DB-REL 22
-and 48 on DB-REL 34, so read it from the descriptor. **Every string pointer below is a
+and 48 on DB-REL 34, so read it from the descriptor. On DB-REL 22 the header ends with two
+`u32 BLOCK_ID`s at `+0x20` / `+0x24`: the next and the previous `0x10` block (620 / 620 chain
+back). Measured over CD-ID 2952 (92,774 detail records) unless noted. S4 holds one
+8-byte road link per detail record: `u32 BLOCK_ID` of a `0x00` tile, `u16` offset of the
+segment record (in the decoded tile if it is packed), `u16` 0 or 1 (unknown; perhaps the side
+of the road). On CD-ID 2952 the linked segment's name is the detail's street (445 / 445 sampled).
+The strings follow S4. **Every string pointer below is a
 plain byte offset from the start of the block** (header included) to a Latin-1,
 `\0`-terminated string; `0` means absent.
 
@@ -424,7 +444,7 @@ S0 — `n0` index records, 8 bytes:
  off  size  field
  0x00   2   NAME_PTR
  0x02   2   TYPE          (2 in 94% of records on DB-REL 22, >99% on DB-REL 34)
- 0x04   2   LOCALITY_PTR  or 0
+ 0x04   2   LOCALITY_PTR  or 0; shown after the post-town initial ("S.-LOCALITY")
  0x06   2   DETAIL_PTR    byte offset of an S1 record
 ```
 
@@ -437,11 +457,20 @@ on DB-REL 22):
  off  size  field
  0x00   4   X             absolute, same frame as §7
  0x04   4   Y
+ 0x08   2   LINK_PTR      byte offset of an S4 road link (the record's own in 77,711 / 92,774)
+ 0x0A   2   1             (92,305 / 92,774 on CD-ID 2952)
+ 0x0C   2   BRAND_PTR     or 0
  0x0E   2   STREET_PTR
+ 0x10   2   CITY_PTR
+ 0x12   2   COUNTY_PTR
+ 0x14   2   COUNTRY_PTR   (`england`, `scotland`, `wales`, `france`, …)
+ 0x16   4   0             (92,308 / 92,774)
  0x1A   2   HOUSE_NO_PTR
+ 0x1C   4   POI_ID        u16 prefix (0x0113, 0x0114, 0x0115, … on CD-ID 2952) + u16 serial;
+                          the same in every copy of the POI and in its 0x06 records
  0x20   2   PHONE_PTR
  0x22   2   POSTCODE_PTR  (outward code + first inward digit, e.g. "sw7 2"; 0 on DB-REL 22)
- other      UNKNOWN
+ 0x24   4   0             (all)
 ```
 
 Measured over every `0x10` block:
@@ -459,7 +488,12 @@ Measured over every `0x10` block:
 Example (CD-ID 21594, block at 2048-byte sector 54542, S0 record at `0x480`):
 `royal albert hall` → street `kensington road`, phone `+442075898212`, postcode
 `sw7 2`, X/Y → **51.50153 N, 0.17716 W**. The same POI is repeated in several `0x10`
-blocks.
+blocks: a branded POI has a category copy and a brand copy (`01-architecture.md` §4.4.2).
+
+On a CNI1 (CD-ID 2952) the POI lists show the brand in front of the name. Moving a POI (detail
+X/Y and its `0x06` record) or pointing its road link at another road keeps it routable; renaming
+it does too, as long as the name stays in order in its letter's `0x11` leaf
+(`01-architecture.md` §4.4.2).
 
 Positions agree with OpenStreetMap to within tens of metres for distinctive names
 (median 52 m over the 28 name matches in one CD-ID 21594 parcel, a figure that

@@ -44,17 +44,17 @@ Every block is readable except one group:
 | Type | Role | Status | Where |
 |---|---|---|---|
 | `0x00` | street-level tile: geometry + routable graph + names | ✅ S2, S4 (incl. `+0x18`), S5, S6, S7, S9–S14 · ❓ S0, S1, S3 | `02-geo.md` §8.3, `03-road-network.md` §6.6–6.7 |
-| `0x01`–`0x03` | coarser levels of the same graph; S8 links a tile to the next level down | ✅ | `03-road-network.md` §6.7 |
+| `0x01`–`0x03` | coarser levels of the same graph; S8 links a tile to the next level down, header `+84` up; node flag bits 15–14 = highest level reached | ✅ · written by us and drawn on a CNI1 (CD-ID 2952) | `03-road-network.md` §6.7 |
 | `0x04` | per-segment house numbers of the linked `0x00` tile (one 10-byte record per S4 segment); `0x0E` S2 ranges are their envelope | ✅ · ❓ left/right and start/end orientation | `03-road-network.md` §6.4 |
-| `0x06` | POI spatial index → `0x10` | ✅ | `02-geo.md` §8.1 |
+| `0x06` | POI spatial index → `0x10`: position, category, brand, POI ID; sorted by X | ✅ · written by us on a CNI1 | `02-geo.md` §8.1 |
 | `0x07` → `0x08` → `0x09` | country info (§4.2) + spatial index: layer directory (12 × 28 B), quadtree grid split over consecutive `0x08` blocks, cell node = column-major grid of `u16` item pointers into a `u32` tile list | ✅ every field of `0x08`/`0x09` and the lookup `carin.parser.spatial.tiles_at` (both DVDs, `scripts/geo/check_spatial_index.py`; 21708: 128,690 / 128,690 tiles; 21734: 144,143 reached from `0x07` + 3,129 `0x06` only through an unreferenced 512² grid) · layer parameters, RR reader `dbq` `0x21270`: param 0 ✅ highest road class of road layers `0x00`–`0x03` (`rpmod` `0x7490c`, checked on every segment of both DVDs), param 1 🟡 lower scale bound (`dbq` `0x5508`, unit ❓), params 2–3 ❓ (not read) · `0x07` `+0x164` trailer: RR read offsets ✅, meaning ❓ | `02-geo.md` §7.3 |
 | `0x0A` | country table: `0x0D` city-trie root, language, left-hand traffic, `COUNTRY_ID`, ISO code, per-category `0x11` POI-trie roots | ✅ · ❓ `+0x1C` (500/300/1000/500 everywhere), `+0x26` | `01-architecture.md` §4.4 (PR #13) |
 | `0x0B` | alphabetical index | 🟡 | `01-architecture.md` §4.3 |
 | `0x13` | CD info (zlib) | 🟡 | `01-architecture.md` §4.1 |
-| `0x0C` | city records: name, post town, `0x0F` road-trie root, city POI tries, city-centre `0x00` segment | ✅ S0, S1 · 🟡 S5 brand lists | `01-architecture.md` §4.4.1 (PR #13), `03-road-network.md` §6.6 |
-| `0x0D` / `0x0F` / `0x11` | letter tries (city / road / POI names) → `0x0C` / `0x0E` / `0x10`; build rule for `0x0F` known | ✅ (checked on DVD 21708 too) · ❓ `0x0D` split rule | `03-road-network.md` §6.3.2, `01-architecture.md` §4.4.1 |
+| `0x0C` | city records: name, post town, `0x0F` road-trie root, POI index by category (S3) and brand (S5), city-centre `0x00` segment | ✅ S0, S1, S3, S5 (issue #21) · written by us on a CNI1 | `01-architecture.md` §4.4.1 (PR #13), §4.4.2, `03-road-network.md` §6.6 |
+| `0x0D` / `0x0F` / `0x11` | letter tries (city / road / POI names) → `0x0C` / `0x0E` / `0x10`; build rule for `0x0F` known; `0x11` is a first-letter index (almost always one level) | ✅ (checked on DVD 21708 too) · ❓ `0x0D` split rule | `03-road-network.md` §6.3.2, `01-architecture.md` §4.4.1 |
 | `0x0E` | **street-name directory**: name, kind, language, locality → runs of `0x00` segments + house-number ranges | ✅ | `03-road-network.md` §6.3.1 |
-| `0x10` | POI records (name, type, address, phone) | ✅ | `02-geo.md` §8.1.1 |
+| `0x10` | POI records (name, locality, brand, address, phone, POI ID, road link); branded POIs in a category copy and a brand copy | ✅ · written by us on a CNI1 | `02-geo.md` §8.1.1, `01-architecture.md` §4.4.2 |
 | `0x14`–`0x16`, `0x1C`–`0x1E` | background layers (sea, forest, built-up, rivers, rail) per zoom | ✅ categories | `02-geo.md` §8.4 |
 | `0x17`, `0x19` | TMC locations: `0x17` the location tables of 13 countries (100 B records by location code), `0x19` ~92,000 records in Germany sorted by position, linked to a `0x00` S4 segment and to other `0x19` records; both one linked block chain | ✅ chains, keys, `0x19` tile/segment links (both DVDs) · ❓ other record fields | `03-road-network.md` §6.7 (S12), `01-architecture.md` §4.7 |
 | `0x12` | root / superblock (schema, `RECORD_SIZE_TABLE`, DB-REL) | ✅ | `01-architecture.md` |
@@ -76,6 +76,9 @@ Every block is readable except one group:
 | Packed `0x00` tiles carry a `+0x18` pass no firmware reads, behind a head of unknown content | RR reads it as pass `0x1B`; the head came from the port skipping the pass `0x15` sentinel | RR `sub_005e6c`, `04-cf1-codec.md` §9.11.12 |
 | `0x0A` holds a 32-bit `NAME_PTR` whose high half is a truncated `0x0D` block ID | `+0x00` is a full `BLOCK_ID` + offset + count (city-trie root); the "truncation" came from reading at `+0x02` | PR #13 |
 | `0x0D`/`0x0F`/`0x11` records carry an ASCII country/street-type code `B_hi`, `B_lo` = 1 | letter + leaf flag of a name trie | PR #13 |
+| `0x11` is a POI-name trie refined letter by letter | a first-letter index: all 85,313 records are leaves on CD-ID 2952, 143 of 437,838 are not on CD-ID 21594 | `01-architecture.md` §4.4.1 |
+| `0x0C` S1 `+0x08` roots the city's own POI tries (categories 48, 56, 57) | one section 3 range per POI category of the city; section 5 holds the brand ranges | `01-architecture.md` §4.4.2, issue #21 |
+| `0x06` `+0x10` is a brand reference | the POI ID (`0x10` detail `+0x1C`); the brand is `+0x0C` | `02-geo.md` §8.1 |
 | `0x04` has 8-byte records (CC-93 `rpmod`) | 10 bytes on the DVD: two sides + numbering scheme, one per S4 segment | `03-road-network.md` §6.4 |
 
 ---
@@ -135,6 +138,11 @@ Every block is readable except one group:
     it now keeps the names). Evidence the approach works: renamed streets and a made-up city
     run on a CNI1 (PR #13, `01-architecture.md` §4.4.1); the destination label still showed the
     old names, so find which copy it reads before generating whole regions.
+    Done on a CNI1 with CD-ID 2952 (2026-09-28/29): plain `0x00` tiles from our own records
+    (drawn, routed, turn-by-turn guidance, also in a country of empty tiles), their `0x03`,
+    `0x02` and `0x01` parents, and a city's whole POI index (`0x06`, `0x10`, `0x11`, `0x0C`
+    sections 3 and 5; `03-road-network.md` §6.7, `01-architecture.md` §4.4.2). Next: a POI index
+    and coarse tiles for a disc of our own roads only, then a writer in the library.
 15. Disc image builder (DVD split `DB_0`/`DB_1`, 512-byte unit) and a round-trip test:
     re-encode a region of 21708 and read it back with our reader.
 

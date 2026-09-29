@@ -51,8 +51,11 @@ We have achieved major breakthroughs across the entire format specification. Eve
   * Block `0x04` stores 10-byte records defining left/right house number ranges per S4 road segment (implemented in [`carin/parser/house_numbers.py`](carin/parser/house_numbers.py)).
   * `0x0E` S2 holds street-level envelope ranges, cross-checked with a **98.9% match against OpenStreetMap addresses**.
 * ✅ **Administrative Search Tries & Physical Hardware Verification (`0x0A`, `0x0C`, `0x0D`, `0x0F`, `0x11`)**:
-  * Country table (`0x0A`), city records (`0x0C` with exact city-center coordinates), and prefix radix tries for cities (`0x0D`), roads (`0x0F`), and POIs (`0x11`).
+  * Country table (`0x0A`), city records (`0x0C` with exact city-center coordinates), and prefix radix tries for cities (`0x0D`) and roads (`0x0F`). POIs (`0x11`) use a first-letter index per city, category and brand (`0x0C` sections 3 and 5).
   * **Live vehicle verification**: Modified street names and a custom created city were injected into disc images and successfully booted and recognized on a physical Renault Carminat CNI1 nav computer!
+* ✅ **Our Own Roads and POIs Run on a CNI1** (CD-ID 2952):
+  * Plain `0x00` road tiles written from our own records draw, route and give turn-by-turn guidance, also on a disc whose other road tiles are all empty. Their coarse `0x03`/`0x02`/`0x01` parents, written by us, draw when zoomed out.
+  * A city's POI index written from scratch (`0x06`, `0x10`, `0x11`, `0x0C` sections 3 and 5): made-up POIs, with and without brands, are listed, found by name and routed to. See [`01-architecture.md`](docs/carindb/01-architecture.md) §4.4.2 and [`03-road-network.md`](docs/carindb/03-road-network.md) §6.7.
 * ✅ **TMC Traffic Message Channel Indices Decoded (`0x17`–`0x1B`)**:
   * TMC location tables (`0x17`), table index (`0x18`), TMC position records (`0x19`), and spherical coordinate spatial index (`0x1B` → `0x1A`).
 * ✅ **High-Performance Rust Toolchain (`carindb-rs`)**:
