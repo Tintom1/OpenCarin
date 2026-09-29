@@ -56,38 +56,155 @@ quadtree** (CF=0, zero records, zero strings): structure, not coverage.
 
 ### 7.3 Quadtree grid
 
-All tile boundaries are exact multiples of **98,304 units** (= 3·2^15 = 0.0176896°),
-origin at `(0, 0)` = 30° W on the equator. Observed sides are `98304 · 2^k` for
-k = 0…5, aspect ratios 1:1, 1:2, or 2:1.
+> **Status (2026-09-29, issue #20): ✅ layout of `0x07` records, `0x08` and `0x09`, and the
+> lookup, on every block of DVDs 21708 and 21734** (`scripts/geo/check_spatial_index.py`,
+> 0 failures on both). ❓ the `0x07` layer parameters.
 
-**This grid is DVD-specific.** On the CD discs, no `0x06` tile has its edges on the 98,304 grid (0/730 on CD-ID 2952, 0/1,652 on CD-ID 21594). Their tiles also aren't aligned to a multiple of their own side.
+Tile edges follow the quadtree of the `0x07` root square, not a fixed grid. On both DVDs
+every tile side is the root side divided by `2^k` (k = 4…16, i.e. 100,663,296 down to
+24,576 units), the tile is 1:1 or 2:1, and its south-west corner is a multiple of its own
+width (x) and height (y) from the root corner: 128,690 / 128,690 tiles on 21708,
+147,272 / 147,272 on 21734.
+
+**Corrected:** the earlier rule "all tile boundaries are multiples of 98,304 units, origin
+at `(0, 0)`" is false on the DVDs too. No tile has its corner on that grid (0 / 128,690 on
+21708, 0 / 147,272 on 21734), and 2,837 (21708) and 3,887 (21734) tiles have a side that
+is not a multiple of 98,304 (sides 24,576 and 49,152 exist). 98,304 = root side / 2^14 is
+one tile size among thirteen (the short side of 17,676 tiles on 21708).
+
+On the CD discs, no `0x06` tile has its edges on the 98,304 grid either (0/730 on CD-ID
+2952, 0/1,652 on CD-ID 21594).
 
 | disc | observed sides |
 |---|---|
 | CD-ID 21594 | powers of two, `2^17 … 2^21` |
 | CD-ID 2952 | `46 · 2^16 / 2^k` (3,014,656 halving down) |
 
-The 1:1 / 2:1 aspect ratio and the ×64 local scale (`max(LOCAL_X) = side/64 − 1`) hold on both. `find_bbox` below relies on the 98,304 rule, so it does not find the bbox on these discs; use the per-type offsets in §7.4 directly.
+The 1:1 / 2:1 aspect ratio and the ×64 local scale (`max(LOCAL_X) = side/64 − 1`) hold on both. `find_bbox` (§7.4) relies on the 98,304 rule; it is superseded by the per-type offsets in §7.4 and the lookup below.
 
-Both grids, and the DVD's, come from the quadtree root stored in `0x07`; see below.
-
-#### Spatial index: `0x07` → `0x08` → `0x09` → tiles (2026-09-28)
+#### Spatial index: `0x07` → `0x08` → `0x09` → tiles
 
 Every georeferenced tile sits in a quadtree whose root square is stored in `0x07`, and
-the disc carries the index from a grid cell to its tiles:
+the disc carries the index from a grid cell to its tiles. Library: `carin.parser.spatial`
+(`tiles_at(vol, layer, lon, lat)`). Every row marked ✅ is a rule of
+`scripts/geo/check_spatial_index.py` that holds on every block of both DVDs.
 
-- **`0x07` layer directory.** One record per map layer: `u32 BLOCK_ID` of the layer's
-  first `0x08` grid block, the root square as `4 × i32` (`x0, y0, x1, y1`), then the
-  layer's parameters (DB-REL 34: 4 × u16, record 28 B; DB-REL 22: 2 × u16, record 24 B).
-  Parameters 1 and 2 look like the display-scale range the layer is drawn at.
-- **`0x08` grid.** Section 0 is `4^k` `u32` entries, one per cell of a `2^k × 2^k` grid over
-  the root square, split over consecutive `0x08` blocks (4,092 entries per 8-sector
-  block). An entry is 0 for an empty cell, otherwise the `BLOCK_ID` of that cell's `0x09`.
-- **`0x09` cell node.** Lists the `BLOCK_ID`s of the tiles of that layer in that cell
-  (from a few samples: section 0 holds small records pointing into section 1, and section 1
-  holds the `u32 BLOCK_ID`s).
+**`0x07` layer directory** (sector 3, DB-REL 34):
 
-Each layer holds one block type. On CD-ID 21594 (CD-ID 21708 has the same eleven layers, with finer grids, and they reference every block of those types too):
+| Offset | Field | Status |
+|---|---|---|
+| `+0x14 + 28·i`, i = 0…11 | 12 records of 28 bytes, inside the service data (before S0 at `+0x174`) | ✅ |
+| record `+0x00` | `u32 BLOCK_ID` of the layer's first `0x08` block; one record (i = 8) points at the `0x1B` TMC position index instead | ✅ |
+| record `+0x04` | root square `4 × i32` (`x0, y0, x1, y1`); the same square for all 11 `0x08` records, all-zero for the `0x1B` one | ✅ |
+| record `+0x14` | `4 × u16` layer parameters; values in the table below; all-zero for the `0x1B` record | observed ✅ · meaning ❓ |
+| `+0x164` | 16 bytes after the 12 records: `99555696 00000000 a6a62a9a 07d60000` (21708), `99555596 …` (21734) | ❓ |
+
+The root square is `3 · 2^29` wide on both DVDs, lon −75.00..214.91, lat −203.91..86.00;
+it is the quadtree's frame, not the data's extent.
+
+**`0x08` grid** (CF=0 on both DVDs):
+
+| Offset | Field | Status |
+|---|---|---|
+| `+0x08` | one descriptor `{0x0010, count}` | ✅ |
+| `+0x0C` | `u32` cell side, in CARIN units (divides the root side exactly) | ✅ |
+| `+0x10` | S0: `count × u32` grid entries; the rest of the block is zero | ✅ |
+
+A layer's grid has `N × N` cells, `N = root side / cell side`. The entries are split over the
+run of **physically consecutive** `0x08` blocks that starts at the directory's `BLOCK_ID`
+(each with its own descriptor and the same cell side); concatenated, they number exactly
+`N²` (up to 171 blocks per layer on 21734). Entry `k` is cell `(x = k div N, y = k mod N)`
+counted east and north from the root corner (column-major). An entry is 0 for an empty cell,
+otherwise the `BLOCK_ID` of a `0x09` block; no `0x09` block appears in two entries. ✅
+
+**`0x09` cell node** (CF=0 or CF=2: 11,537 + 1,811 on 21708, 27,885 + 2,024 on 21734;
+never CF=1):
+
+| Offset | Field | Status |
+|---|---|---|
+| `+0x08` | descriptor S0 = `{0x0014, q²}` | ✅ |
+| `+0x0C` | descriptor S1 = `{(0x14 + 2·q² + 3) & ~3, n}` (S1 starts at the next 4-byte boundary) | ✅ |
+| `+0x10` | `u32` item side `s`; it divides the cell side, `q = cell side / s` | ✅ |
+| `+0x14` | S0: `q²` `u16` item pointers, column-major like `0x08`. A pointer is 0 (empty item) or the absolute in-block offset of an S1 entry | ✅ |
+| S1 | `n` `u32` tile `BLOCK_ID`s, no duplicates, each pointed at by at least one item, in the order they are first met scanning S0 | ✅ |
+| gap after S0, bytes after S1 | zero | ✅ |
+
+The item side is the smallest side of (tile bbox ∩ cell) over the cell's tiles, and equals the
+gcd of those sides and of their offsets from the cell corner: the coarsest grid that puts
+every tile edge in the cell on an item boundary (13,348 / 13,348 blocks on 21708,
+29,909 / 29,909 on 21734). The two `u16` at `+0x10` seen in samples (`0000 c000`,
+`0001 8000`) are this one `u32` (49,152 and 98,304). ✅
+
+**Items and tiles.** The items that point at a tile, collected over every `0x09` block of
+its layer, are disjoint and their union is exactly the tile's bounding box (§7.4), both in
+extent and in area: 128,690 / 128,690 tiles on 21708, 147,272 / 147,272 on 21734. On
+21734, 3,753 `0x06` tiles are listed in more than one `0x09` block: they span several
+layer-1 cells, and each cell's items cover the tile clipped to that cell (on 21708 every tile
+is listed in exactly one `0x09`). Tiles of one layer therefore do
+not overlap, and a point selects at most one tile per layer. ✅
+
+**Lookup** (`carin.parser.spatial`): cell `(⌊(X−x0)/cell⌋, ⌊(Y−y0)/cell⌋)` → entry of the
+concatenated `0x08` run → `0x09` → item `(⌊(X−cx0)/s⌋, ⌊(Y−cy0)/s⌋)` → pointer → S1. Queried
+at the centre of every tile's bbox it returns that tile: 128,690 / 128,690 on 21708,
+144,143 / 144,143 tiles reached from `0x07` on 21734. ✅
+
+**Layers on the DVDs** (each layer holds exactly one tile type; parameters as stored):
+
+| # | Parameters | Tiles | 21708: grid, non-empty cells, tiles | 21734: grid, non-empty cells, tiles |
+|---|---|---|---|---|
+| 0 | `(6, 0, 1, 0)` | `0x00` | 1024², 11,040, 91,756 | 1024², 11,291, 99,355 |
+| 1 | `(0, 0, 0, 0)` | `0x06` | 512², 1,477, 2,688 | 1024², 15,488, 8,113 |
+| 2 | `(0, 1200, 3000, 0)` | `0x01` | 16², 16, 2,710 | 16², 18, 2,830 |
+| 3 | `(1, 120, 1200, 0)` | `0x02` | 32², 44, 3,580 | 32², 49, 3,709 |
+| 4 | `(2, 1, 120, 0)` | `0x03` | 64², 134, 6,740 | 64², 145, 7,137 |
+| 5 | `(0, 320, 1200, 0)` | `0x14` | 2², 2, 358 | 2², 2, 397 |
+| 6 | `(2, 40, 120, 0)` | `0x15` | 64², 265, 4,511 | 64², 289, 4,885 |
+| 7 | `(2, 1, 40, 0)` | `0x16` | 64², 265, 14,661 | 128², 1,040, 15,872 |
+| 8 | `(0, 0, 0, 0)` | — (`0x1B` TMC index, `01-architecture.md` §4.7) | — | — |
+| 9 | `(1, 120, 320, 0)` | `0x1C` | 32², 102, 1,461 | 32², 108, 1,605 |
+| 10 | `(0, 1200, 3000, 0)` | `0x1D` | 2², 2, 172 | 2², 2, 187 |
+| 11 | `(65535, 3000, 65535, 0)` | `0x1E` | 1, 1, 53 | 1, 1, 53 |
+
+On 21708 the 117 `0x08` blocks, 13,348 `0x09` blocks and 128,690 tile blocks on the disc are
+all reached from `0x07`.
+
+**21734: an unreferenced grid.** 22 consecutive `0x08` blocks starting at `0x32F1E060` are in
+no layer's run: a complete 512² grid (cell side 3,145,728, the same as layer 1 on 21708)
+over the same root, pointing at 1,476 `0x09` blocks and through them at 3,129 `0x06` tiles.
+It passes every rule above, but nothing points at it (`carindb-rs xref 0x32f1e060`: 0 hits
+on the whole disc), and its 1,476 `0x09` blocks and 3,129 `0x06` tiles are in no grid that
+`0x07` reaches. So on 21734 the lookup reaches 28,433 of 29,909 `0x09` blocks and 144,143 of
+147,272 tiles; the rest are exactly those of this grid. Whether the firmware ever reads it ❓.
+
+**Layer parameters ❓.** Parameters 1 and 2 look like a display-scale range (`(0, 1)`,
+`(1, 40)`, `(40, 120)`, `(120, 1200)`, `(1200, 3000)`, `(3000, 65535)`) and QGIS_VDO names
+them `zoom_from`/`zoom_to` (below), but no firmware reader was found (`05-failed-attempts.md`
+§9.12): the meaning is not confirmed. The fourth `u16` is 0 on every record of both DVDs.
+
+**Relation to QGIS_VDO** (`lugovskovp/QGIS_VDO`, GPL-3.0, commit `91c516e`; read, not
+copied). Confirmed by the rules above:
+
+- `vdo/blocks/block_0x09.py` L14–16: `+0x08` list of items, `+0x0C` list of `BLADDR`s,
+  `+0x10` `item_side` (u32). L125: an item pointer is an in-block offset to a u32 `BLADDR`.
+- `block_0x09.py` L94–97, L135 and `block_0x08.py` L99–108, L146: index `y + x · qty_y`
+  (column-major), in both block types.
+- `block_0x09.py` L46–47: `qty = (max − origin) // item_side`, with origin/max the parent
+  `0x08` cell; on the DVDs cells are square, so `qty_x = qty_y = cell side / item side`.
+- `block_0x09.py` L109–123: cells with the same pointer merged into one tile (RLE on x and y).
+  Stronger on the DVDs: they always form one full rectangle equal to the tile's bbox (except
+  tiles clipped at a `0x08` cell edge, see above).
+- `block_0x08.py` L33–34, L58: `+0x0C` `item_side` (u32) = our cell side.
+- `block_0x07.py` L41, L44–53, L252–254: 12 records of `0x1C` bytes at `+0x14` on DB-REL 34
+  (`BLADDR`, two `COORD`s, `value_a`, `zoom_from`, `zoom_to`).
+
+Not in QGIS_VDO: its `block_0x08` reads the entries of one block (`block_0x08.py` L57, L113);
+on the DVDs most grids span several consecutive `0x08` blocks. Its names `zoom_from`/`zoom_to`
+are not evidence for the parameter meaning. The handoff `08-qgis-vdo-handoff.md` §3 summarises
+these files; each point used here was checked against the files themselves.
+
+**CD discs** (tested by a contributor, 2026-09-28; not re-checked here). On DB-REL 22 the
+directory records are 24 bytes (`2 × u16` parameters). On CD-ID 21594
+(CD-ID 21708 has the same eleven layers, with finer grids, and they reference every block of those types too):
 
 | Layer parameters | Grid | Tiles | Referenced / on disc (CD-ID 21594) |
 |---|---|---|---|
@@ -103,12 +220,12 @@ Each layer holds one block type. On CD-ID 21594 (CD-ID 21708 has the same eleven
 | `(0, 1200, 3000)` | 1 | `0x1D` | 108 / 108 |
 | `(65535, 3000, 65535)` | 1 | `0x1E` | 42 / 42 |
 
-On DVDs 21708 and 21734 the directory has a twelfth record that is not a quadtree layer: the
-`BLOCK_ID` of the `0x1B` TMC position index, with an all-zero root square and parameters.
-`0x19` is indexed through it by a sorted position key instead (`01-architecture.md` §4.7).
+`0x19` is indexed through the `0x1B` record by a sorted position key instead
+(`01-architecture.md` §4.7).
 
 The number of `0x09` blocks equals the number of non-empty cells over all layers (1,153 on
-CD-ID 21594). `0x0E`, `0x0C` and `0x10` are not in the spatial index: `0x10` is reached
+CD-ID 21594; on 21708 13,348; on 21734 28,433 plus the 1,476 of the unreferenced grid).
+`0x0E`, `0x0C` and `0x10` are not in the spatial index: `0x10` is reached
 from `0x06`, and `0x0E` links to `0x00` tiles itself (`03-road-network.md` §6.3.1).
 
 **The tile grid follows from the root square.** Every tile is a cell of that quadtree:
@@ -118,7 +235,8 @@ its side is the root side divided by a power of two and its corners are on that 
 |---|---|---|---|
 | CD-ID 2952 | −11.81°, 33.33° | 46 · 2^22 | 730 / 730 |
 | CD-ID 21594 | −36.30°, −10.64° | 2^29 | 1,652 / 1,652 |
-| CD-ID 21708 | −75.00°, −203.91° | 3 · 2^29 | the 98,304-unit grid below is `3 · 2^29 / 2^14` |
+| CD-ID 21708 | −75.00°, −203.91° | 3 · 2^29 | 2,688 / 2,688 (all tiles: 128,690 / 128,690) |
+| CD-ID 21734 | −75.00°, −203.91° | 3 · 2^29 | 11,242 / 11,242 (all tiles: 147,272 / 147,272) |
 
 The root square is not the data's extent (on CD-ID 21708 it reaches −203.9° latitude); it
 is only the quadtree's frame.
@@ -132,11 +250,13 @@ most of the 11% of the disc that `0x09` takes up there).
 ### 7.4 Bounding box by block type
 
 The bbox (`4 × int32` = `X_min, Y_min, X_max, Y_max`) immediately follows the
-section descriptor. The number of descriptor entries varies per block, so locate
-the bbox with a grid constraint (`carin.parser.iso.find_bbox`): sides multiple of
-98,304 and aspect ratio 1:1 / 1:2 / 2:1.
+section descriptor, at a fixed offset per block type (table). On DVDs 21708 and 21734 the
+offsets hold for every tile block of every type below: each bbox read there equals the union
+of the `0x09` items that point at the tile (§7.3, `scripts/geo/check_spatial_index.py`).
+`carin.parser.iso.find_bbox` (a scan for a box with sides multiple of 98,304) is superseded:
+2,837 tiles on 21708 and 3,887 on 21734 break its side rule.
 
-| Type | bbox offset | locator coverage |
+| Type | bbox offset | `find_bbox` coverage (old sample) |
 |---|---|---|
 | `0x00`–`0x03` | `0x44` | 60/60 |
 | `0x06` | `0x10` | 60/60 |
@@ -147,6 +267,10 @@ the bbox with a grid constraint (`carin.parser.iso.find_bbox`): sides multiple o
 > **Note for CF=1 work:** the bbox at `0x44` sits inside the plaintext prologue, so
 > it is readable on `CF=1` blocks *without decompressing* — the basis of the
 > cross-edition method in [`05-failed-attempts.md`](05-failed-attempts.md) §9.10.
+> Checked on every CF=1 tile of both DVDs (`check_spatial_index.py --cf1-rust`): the bbox
+> decoded by `carindb-rs` equals the prologue bytes for all `0x00` (86,107 / 91,651) and
+> `0x14`–`0x16`, `0x1C`–`0x1E` blocks (9,763 / 14,225) on 21708 / 21734; both decoders
+> copy the prologue (`T[0x0B]` = 0x74, `T[0x3D]` = 0x34 bytes) verbatim.
 
 #### 7.4.1 Type `0x00` frames on CD-era discs
 
@@ -171,7 +295,7 @@ fail to join. `carin.parser.geometry.tile_frame` handles both forms.
 CARIN_UNITS_PER_TURN = 2_000_000_000
 K = CARIN_UNITS_PER_TURN / 360.0      # 5_555_555.5555...
 LON_ORIGIN, LAT_ORIGIN = -30.0, 0.0
-QUADTREE_UNIT = 98_304
+QUADTREE_UNIT = 98_304                # find_bbox only; not a grid rule (§7.3)
 
 BBOX_FMT = ">4i"                      # X_min, Y_min, X_max, Y_max
 

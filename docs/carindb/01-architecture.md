@@ -489,10 +489,11 @@ Decompressed to 1024 bytes. After the header: a 2-section descriptor
 +0x00 header (8)
 +0x08 SECTION_DESCRIPTOR[3] = {0x0174, 40}, {0x0264, 13}, {0x0382, 43}
 +0x14 SERVICE_DATA (0x14..0x173)
-      0x0614: 2FE27160  UNKNOWN (u32)
-      0x0618: F1198000 BC7A5000 51198000 1C7A5000   RESERVED (4x i32)
-              NOT the geographic bbox of the data: incompatible with any lon/lat calibration.
-      followed by 12 records of 24 bytes, each repeating the same quartet
+      0x14 + 28*i, i = 0..11: layer directory, 28-byte records (02-geo.md §7.3)
+            u32 BLOCK_ID of the layer's 0x08 grid (i = 8: the 0x1B TMC index)
+            4 x i32 root square F1198000 BC7A5000 51198000 1C7A5000 (same in all 11 layers)
+            4 x u16 layer parameters (meaning unknown)
+      0x164: 16 bytes UNKNOWN
 +0x174 SECTION_0: 40 records of 6 bytes   -> ">HHH" (country_id, seq_id, 0)
                   seq_id = 0x0734..0x075B, consecutive
 +0x264 SECTION_1: 13 records of 20 bytes  -> ">IHHHHHHHH"
@@ -506,9 +507,11 @@ Decompressed to 1024 bytes. After the header: a 2-section descriptor
 
 > **Update (2026-09-28):** the repeated quartet is the root square of the spatial
 > quadtree, not the data's extent: on CD-ID 21708 it is lon −75.00..214.91, lat
-> −203.91..86.00, side `3 · 2^29`, and `3 · 2^29 / 2^14` is the 98,304-unit tile grid. The
-> 24-byte records around it form the **layer directory**: `u32 BLOCK_ID` of a layer's
-> `0x08` grid, the root square, and the layer's parameters. See `02-geo.md` §7.3.
+> −203.91..86.00, side `3 · 2^29`; tile sides are this side / `2^k` (98,304 is `k = 14`, one
+> size among several, not a grid rule; `02-geo.md` §7.3). The
+> 28-byte records around it form the **layer directory**: `u32 BLOCK_ID` of a layer's
+> `0x08` grid, the root square, and the layer's parameters. See `02-geo.md` §7.3 (checked on
+> every record of DVDs 21708 and 21734 by `scripts/geo/check_spatial_index.py`, 2026-09-29).
 
 ### 4.3 `0x0B` — Alphabetical Index (sectors 7 and 8, 1 sector each)
 

@@ -71,7 +71,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from carin.parser import cf1                       # noqa: E402
 from carin.parser.iso import CarinVolume, IsoImage  # noqa: E402
 
-DISCS = ["dataset/NAV_DB_21708.ISO", "dataset/High_2019_WE_SC_SL.bin"]
+DISCS = ["dataset/NAV_DB_21708.ISO", "dataset/NAV_DB_21734.ISO"]
 # section -> RECORD_SIZE_TABLE index of its record size (S8 has none in 0x00)
 REC = {0: 0x40, 1: 0x40, 2: 0x40, 3: 0x12, 4: 0x08, 5: 0x10, 6: 0x06, 7: 0x0C,
        9: 0x0F, 10: 0x14, 11: 0x13, 12: 0x15, 13: 0x4C, 14: 0x59}

@@ -143,6 +143,34 @@ Second image `NAV_DB_21734` (build 2018-05-09, **same binary schema**).
    identical descriptor, `difflib` excluding low-variety runs as oracle) is valid for
    **any** future hypothesis. Reference map in `build/cross_iso_type0.pkl`.
 
+### 9.12 Spatial index `0x07`–`0x09` (issue #20, 2026-09-29) — not a codec attempt
+1. **"All DVD tile edges are multiples of 98,304 from `(0, 0)`" — falsified** on every tile of
+   both DVDs (`scripts/geo/check_spatial_index.py`): 0 of 128,690 (21708) and 0 of 147,272
+   (21734) tiles have their corner on that grid, and 2,837 / 3,887 have a side that is not a
+   multiple of 98,304 (sides 24,576 and 49,152 exist). The rule that holds is root side /
+   `2^k` (`02-geo.md` §7.3). `find_bbox`, built on the old rule, is marked superseded.
+2. **Firmware reader of the `0x07` layer parameters — not found.** Searched the 17 modules of
+   RR `V_2_RR_0101_BMWC01S_app_sw_bsw2` (all code, capstone, not Ghidra) for two shapes:
+   - a 28-byte record read: `lw` at `+0/+4/+8/+0xC/+0x10` and `lh`/`lhu` at `+0x14/+0x16` on one
+     base register within 80 instructions (base offset 0 or `0x14`). One hit, `mm +0x304e0`:
+     it copies byte fields at `+0`, `+2`, `+3`, `+0x2B` and a word at `+0x34` of its source into
+     a map-matching object. A `0x07` record has a `u32 BLOCK_ID` at `+0` and nothing at
+     `+0x2B`: not the reader.
+   - a cell/item side used as divisor: a `lw` from `+0x0C` or `+0x10` that is the divisor of
+     two or more `div`/`divu` within 60 instructions. One hit, `db_bh_read +0x6524`: it
+     divides a handle's `+0x18` by its `+0x10` and compares the quotient with `+0x14` − 1,
+     on the handle passed in `$a0` (a buffer position), not on a `0x08`/`0x09` block.
+
+   Why this is not conclusive: the reader may copy the directory into another structure
+   first, divide by a value loaded elsewhere, or use code my windows split. Not tried: Ghidra
+   cross-references from the `0x07` read, other RR builds, Mk3. The parameters stay ❓, and
+   QGIS_VDO's names `zoom_from`/`zoom_to` are not evidence.
+3. **Who else points at the unreferenced `0x08` grid on 21734.** `carindb-rs xref 0x32f1e060`
+   (its first block): 0 hits on the whole disc. The same scan for its 1,476 `0x09` and 3,129
+   `0x06` `BLOCK_ID`s was stopped: with 4,605 IDs it had covered about 3% of the disc after
+   several minutes. So "nothing points at those `0x09` / `0x06` blocks" is **not** established;
+   only "no grid reached from `0x07` lists them" is (check script).
+
 ---
 
 ## What survived as *positive* signal
