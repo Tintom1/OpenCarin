@@ -569,6 +569,17 @@ groups that sit in one block (open).
 Chain verified: `0x25+0x20=0x45`, `0x45+0x20=0x65`, … `0xA5+0x1A=0xBF`, … ✅
 `group` = 0,1,2,3,4,5,6,7,0x0A,0x0C,0x0F,0x11 → language / text family index.
 
+Checked against a second OEM disc: Audi MMI Basic Plus CD (Benelux, DB-REL 34, single `/carindb` + `/CARINET`, not in `dataset/`).
+
+| | This disc (CD-ID 21594) | Audi MMI Basic Plus CD |
+|---|---|---|
+| Size | 750,592 B | 750,592 B |
+| Header (`BLOCK_TYPE`, section descriptors) | as above | byte-for-byte identical |
+| `"(null message), see protocol, sect. 3.5.4"` | — | verbatim in NL, EN, FR, ES |
+| Languages found (keyword search, not exhaustive) | — | NL, EN ×2, FR, ES, DE, IT, PT, SV |
+
+**Reading.** The sentence above identifies the catalog as ISO 14819 (RDS-TMC ALERT-C) event/weather phrases; the DE text read this way is weather phrases ("Regenschauer", "sonniges Wetter"), not traffic events. Every group's last Section 1 record has `limit = 0x07FF` (2047, the top of an 11-bit ALERT-C event code), which would fit `limit` as an end-of-group sentinel and `group` as language × text-variant (11 groups for the 8–9 languages found) rather than a stored value or language alone — neither checked against firmware or a full record decode.
+
 ---
 
 ## 5. Text Encoding (Name Table)
