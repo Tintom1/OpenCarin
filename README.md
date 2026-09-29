@@ -4,7 +4,7 @@
 [![Rust 2024](https://img.shields.io/badge/rust-2024-orange.svg)](carindb-rs/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Format: CARINdb](https://img.shields.io/badge/format-CARiN%20%2F%20CarinDB-orange.svg)](#)
-[![Tests: 37 passing](https://img.shields.io/badge/tests-37%20passing-brightgreen.svg)](tests/)
+[![Tests: 81 passing](https://img.shields.io/badge/tests-81%20passing-brightgreen.svg)](tests/)
 [![Buy Me A Coffee](https://img.shields.io/badge/Donate-Buy%20Me%20A%20Coffee-yellow.svg)](https://buymeacoffee.com/fdemusso)
 
 **OpenCarin** is an open-source reverse-engineering and map compilation toolkit for the proprietary **Philips/VDO CARiN** navigation database format (`CARINdb`, `DB_0`, `DB_1`, `CARINET`).
@@ -70,16 +70,16 @@ With the reading and decoding of the binary format solved, our focus is shifted 
 ### 1. RoadRunner Firmware Route Planner & Cost Functions 🔴 Critical
 * Reverse-engineer the routing engine in RoadRunner MIPS firmware (`bsw2` / `sub_01fd80`, `sub_04e02c`).
 * Decode speed code lookup tables (`+0x0A & 0x1F`), turn restriction weights (Section 10), and routing cost traversal heuristics.
-* Trace inter-tile crossing logic (Section 6 twins) and hierarchical layer transitions (Section 8).
+* Trace inter-tile crossing logic (Section 6 twins) and hierarchical layer transitions (Section 8) in the firmware. On the data side the levels are known: which street roads and nodes reach `0x03`/`0x02`/`0x01` and how coarse segments are built ([`03-road-network.md`](docs/carindb/03-road-network.md) §6.7); still open are the ~4% of runs the disc leaves out and how coarse shapes are simplified.
 
 ### 2. Routable Export Pipeline (GeoPackage / OSRM / Valhalla) 🟠 High
 * Build an export pipeline converting decoded `0x00`–`0x03` road segments, nodes, geometry, one-way restrictions, turn penalties, and street names into standard GIS / routing formats (GeoPackage, GeoJSON, OSRM/Valhalla graph).
 * Validate routing accuracy by computing test routes and comparing against OSM/OSRM.
 
 ### 3. OpenStreetMap to CARiN Serializer & ISO Compiler 🟡 Ongoing
-* **Block Serializers**: Generate uncompressed (CF=0) `0x00`–`0x03` road network tiles from OSM ways and nodes (CF=1 is not required for writing custom discs).
+* **Block Serializers**: Generate uncompressed (CF=0) `0x00`–`0x03` road network tiles from OSM ways and nodes (CF=1 is not required for writing custom discs). Hand-built plain tiles, their coarse parents and a city's POI index already run on a CNI1; the rules they need are in [`03-road-network.md`](docs/carindb/03-road-network.md) §6.7 and [`01-architecture.md`](docs/carindb/01-architecture.md) §4.4.2.
 * **Spatial Index Builder**: Generate quadtree directory `0x07` → grid `0x08` → cell matrix `0x09`.
-* **Administrative Hierarchy & Tries**: Compile country table `0x0A`, city directory `0x0C`, and search tries `0x0D` / `0x0F` / `0x11`.
+* **Administrative Hierarchy & Tries**: Compile country table `0x0A`, city directory `0x0C`, and search tries `0x0D` / `0x0F` / `0x11`. The `0x0F` build rule and the `0x11` POI index are known and tested on a CNI1; `0x0D`'s split rule is still open.
 * **Disc Masterer**: Package 512-byte sector-aligned `DB_0` / `DB_1` files and generate bootable dual-layer ISO 9660 filesystem images.
 
 ### 4. Residual Decoders & Legacy Formats 🟢 Minor
