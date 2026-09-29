@@ -115,8 +115,9 @@ pub struct CarinVolume {
     pub image: IsoImage,
     parts: Vec<IsoFile>,
     sectors: Vec<usize>,
-    layout: Option<HashMap<u16, u16>>,
+    pub layout: Option<HashMap<u16, u16>>,
     pub db_rel: u16,
+    pub subrel: u16,
 }
 
 pub struct CarinBlock<'a> {
@@ -144,6 +145,7 @@ impl CarinVolume {
             sectors,
             layout: None,
             db_rel: 0,
+            subrel: 9,
         };
         
         vol.read_layout();
@@ -203,6 +205,48 @@ impl CarinVolume {
             usize_,
             raw,
         })
+    }
+
+    pub fn calibrate(&mut self, sample_size: usize) -> u16 {
+        let mut heads = Vec::new();
+        let mut count = 0;
+        let max_scans = 10000;
+        
+        // Cannot use iter_blocks() mutably while self is mutably borrowed easily here, 
+        // but we can manually iterate or clone parts.
+        // For simplicity, we just collect some blocks.
+        let mut iter = self.iter_blocks();
+        while let Some(blk) = iter.next() {
+            if blk.btype == 0x00 && (blk.comp & 1) != 0 {
+                // read_sectors does not take mut self.
+                heads.push((blk.sector, blk.length, blk.usize_));
+            }
+            count += 1;
+            if count >= max_scans || heads.len() >= sample_size * 10 {
+                break;
+            }
+        }
+        
+        if heads.is_empty() {
+            return self.subrel;
+        }
+        
+        let step = std::cmp::max(1, heads.len() / sample_size);
+        let mut raws_owned = Vec::new();
+        for i in (0..heads.len()).step_by(step).take(sample_size) {
+            let (sec, len, _) = heads[i];
+            raws_owned.push(self.read_sectors(sec as usize, len as usize).to_vec());
+        }
+        
+        let mut raws = Vec::new();
+        for r in &raws_owned {
+            raws.push(r.as_slice());
+        }
+        
+        let layout = self.layout().clone();
+        let best_subrel = crate::probe::detect_subrel(&raws, &layout, self.db_rel);
+        self.subrel = best_subrel;
+        self.subrel
     }
 }
 

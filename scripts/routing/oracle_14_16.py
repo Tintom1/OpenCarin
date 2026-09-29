@@ -74,7 +74,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from carin.parser import cf1                       # noqa: E402
 from carin.parser.iso import CarinVolume, IsoImage  # noqa: E402
 
-DISCS = ["dataset/NAV_DB_21708.ISO", "dataset/High_2019_WE_SC_SL.bin"]
+DISCS = ["dataset/NAV_DB_21708.ISO", "dataset/NAV_DB_21734.ISO"]
 TYPES = (0x14, 0x15, 0x16, 0x1C, 0x1D, 0x1E)
 K = 2_000_000_000 / 360
 LEGACY_EU = (int(10 * K), int(80 * K), int(25 * K), int(75 * K))  # old oracle constants

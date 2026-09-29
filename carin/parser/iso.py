@@ -263,7 +263,7 @@ LAT_ORIGIN = 0.0
 # plausible coverage window, used to recognise a bbox inside service data
 _X_RANGE = (-60_000_000, 1_000_000_000)
 _Y_RANGE = (0, 450_000_000)
-QUADTREE_UNIT = 98_304          # smallest observed tile side, in CARIN units
+QUADTREE_UNIT = 98_304          # find_bbox only; not the smallest tile side (24,576 on the DVDs)
 
 
 def to_wgs84(x: int, y: int):
@@ -276,6 +276,13 @@ def to_carin(lon: float, lat: float):
 
 def find_bbox(payload: bytes):
     """Locate the 4 x int32 bounding box that follows the section descriptor.
+
+    Superseded: the bbox sits at a fixed offset per block type (02-geo.md §7.4), and
+    tile sides are the 0x07 root side / 2^k, not multiples of 98304. On DVD 21708,
+    2,837 of 128,690 tiles have a side that is not a multiple of 98304, so their
+    bbox breaks the rule below (21734: 3,887 of 147,272;
+    scripts/geo/check_spatial_index.py).
+    For a lookup by position use carin.parser.spatial.
 
     The descriptor entry count varies per block, so the bbox is found by
     scanning 4-aligned positions up to the first section offset.  A genuine box
