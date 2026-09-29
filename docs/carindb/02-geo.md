@@ -103,6 +103,10 @@ Each layer holds one block type. On CD-ID 21594 (CD-ID 21708 has the same eleven
 | `(0, 1200, 3000)` | 1 | `0x1D` | 108 / 108 |
 | `(65535, 3000, 65535)` | 1 | `0x1E` | 42 / 42 |
 
+On DVDs 21708 and 21734 the directory has a twelfth record that is not a quadtree layer: the
+`BLOCK_ID` of the `0x1B` TMC position index, with an all-zero root square and parameters.
+`0x19` is indexed through it by a sorted position key instead (`01-architecture.md` §4.7).
+
 The number of `0x09` blocks equals the number of non-empty cells over all layers (1,153 on
 CD-ID 21594). `0x0E`, `0x0C` and `0x10` are not in the spatial index: `0x10` is reached
 from `0x06`, and `0x0E` links to `0x00` tiles itself (`03-road-network.md` §6.3.1).

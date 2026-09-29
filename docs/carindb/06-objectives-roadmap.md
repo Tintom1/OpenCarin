@@ -56,9 +56,10 @@ Every block is readable except one group:
 | `0x0E` | **street-name directory**: name, kind, language, locality → runs of `0x00` segments + house-number ranges | ✅ | `03-road-network.md` §6.3.1 |
 | `0x10` | POI records (name, type, address, phone) | ✅ | `02-geo.md` §8.1.1 |
 | `0x14`–`0x16`, `0x1C`–`0x1E` | background layers (sea, forest, built-up, rivers, rail) per zoom | ✅ categories | `02-geo.md` §8.4 |
-| `0x17`, `0x19` | TMC location names / codes | 🟡 | `03-road-network.md` §6.7 (S12) |
+| `0x17`, `0x19` | TMC locations: `0x17` the location tables of 13 countries (100 B records by location code), `0x19` ~92,000 records in Germany sorted by position, linked to a `0x00` S4 segment and to other `0x19` records; both one linked block chain | ✅ chains, keys, `0x19` tile/segment links (both DVDs) · ❓ other record fields | `03-road-network.md` §6.7 (S12), `01-architecture.md` §4.7 |
 | `0x12` | root / superblock (schema, `RECORD_SIZE_TABLE`, DB-REL) | ✅ | `01-architecture.md` |
-| `0x18`, `0x1A`, `0x1B` | 1–13 blocks each | ❓ | — |
+| `0x18` | TMC location-table index: one block per table (`TABLE = LTN << 4 \| CC`), 0x17 `BLOCK_ID` + first location code; reached from `0x07` S1 | ✅ (both DVDs; CC/LTN match the published TMC list, UK LTN 10 not listed) · ❓ `0x07` S1 `+0x0A` bytes | `01-architecture.md` §4.7 |
+| `0x1B` → `0x1A` | position index over `0x19`: root (key origin 13.5° E 52.5° N, COUNTRY_ID) → one `0x19` `BLOCK_ID` + first key per block; `0x1B` is in the `0x07` layer directory | ✅ (both DVDs): key = 100 m steps on a 6,371 km sphere, `x` scaled by `cos φ`, rounded · ❓ `0x0104`, `0x1000`; no firmware reader found | `01-architecture.md` §4.7 |
 
 ## 3. Corrected conclusions (do not rely on the old text)
 
@@ -114,7 +115,11 @@ Every block is readable except one group:
 12. **Routable export**: nodes/edges with length, class, speed, one-way, toll, turn
     restrictions, names, house numbers → GeoPackage + a routing format; check routes against
     OSM/OSRM in a test area.
-13. **Unknown blocks** `0x18`, `0x1A`, `0x1B`, and TMC `0x17`/`0x19`.
+13. ~~**Unknown blocks** `0x18`, `0x1A`, `0x1B`~~ Done 2026-09-29 (`01-architecture.md` §4.7,
+    `scripts/routing/check_tmc_index.py --geometry`, issue #17; DVDs 21708 and 21734): TMC
+    indexes over `0x17` and `0x19`. Left open: the remaining `0x17` and `0x19` record fields;
+    `0x1A`/`0x1B` `0x0104`, `0x1000`; `0x07` S1 `+0x0A`; the firmware reader (none found; the
+    `hdltmc +0x2f620` switch is not one).
 
 ### D. Writer / compiler
 14. Encoders: plain (CF=0) `0x00`–`0x03` tiles first; then `0x0E`, `0x0D`/`0x0F`/`0x11`,
