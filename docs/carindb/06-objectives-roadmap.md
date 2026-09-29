@@ -47,7 +47,7 @@ Every block is readable except one group:
 | `0x01`–`0x03` | coarser levels of the same graph; S8 links a tile to the next level down | ✅ | `03-road-network.md` §6.7 |
 | `0x04` | per-segment house numbers of the linked `0x00` tile (one 10-byte record per S4 segment); `0x0E` S2 ranges are their envelope | ✅ · ❓ left/right and start/end orientation | `03-road-network.md` §6.4 |
 | `0x06` | POI spatial index → `0x10` | ✅ | `02-geo.md` §8.1 |
-| `0x07` → `0x08` → `0x09` | country info (§4.2) + spatial index: layer directory (12 × 28 B), quadtree grid split over consecutive `0x08` blocks, cell node = column-major grid of `u16` item pointers into a `u32` tile list | ✅ every field of `0x08`/`0x09` and the lookup `carin.parser.spatial.tiles_at` (both DVDs, `scripts/geo/check_spatial_index.py`; 21708: 128,690 / 128,690 tiles; 21734: 144,143 reached from `0x07` + 3,129 `0x06` only through an unreferenced 512² grid) · ❓ layer parameters, `0x07` `+0x164` | `02-geo.md` §7.3 |
+| `0x07` → `0x08` → `0x09` | country info (§4.2) + spatial index: layer directory (12 × 28 B), quadtree grid split over consecutive `0x08` blocks, cell node = column-major grid of `u16` item pointers into a `u32` tile list | ✅ every field of `0x08`/`0x09` and the lookup `carin.parser.spatial.tiles_at` (both DVDs, `scripts/geo/check_spatial_index.py`; 21708: 128,690 / 128,690 tiles; 21734: 144,143 reached from `0x07` + 3,129 `0x06` only through an unreferenced 512² grid) · layer parameters, RR reader `dbq` `0x21270`: param 0 ✅ highest road class of road layers `0x00`–`0x03` (`rpmod` `0x7490c`, checked on every segment of both DVDs), param 1 🟡 lower scale bound (`dbq` `0x5508`, unit ❓), params 2–3 ❓ (not read) · `0x07` `+0x164` trailer: RR read offsets ✅, meaning ❓ | `02-geo.md` §7.3 |
 | `0x0A` | country table: `0x0D` city-trie root, language, left-hand traffic, `COUNTRY_ID`, ISO code, per-category `0x11` POI-trie roots | ✅ · ❓ `+0x1C` (500/300/1000/500 everywhere), `+0x26` | `01-architecture.md` §4.4 (PR #13) |
 | `0x0B` | alphabetical index | 🟡 | `01-architecture.md` §4.3 |
 | `0x13` | CD info (zlib) | 🟡 | `01-architecture.md` §4.1 |
@@ -93,9 +93,11 @@ Every block is readable except one group:
 3. ~~**Spatial lookup on `0x07`–`0x09`.**~~ Done 2026-09-29 (`02-geo.md` §7.3, issue #20):
    `carin.parser.spatial.tiles_at(vol, layer, lon, lat)`, checked at the centre of every
    reached tile on both DVDs. `find_bbox` marked superseded (per-type bbox offsets, §7.4);
-   `find_parcel` kept for `0x0E`, which the disc index does not cover. Left open: the layer
-   parameters (no firmware reader found, `05-failed-attempts.md` §9.12), the 16 bytes at
-   `0x07 +0x164`, whether the firmware reads the unreferenced `0x08` grid on 21734, DB-REL < 34.
+   `find_parcel` kept for `0x0E`, which the disc index does not cover. Layer parameters
+   (2026-09-29): RR reader found (`dbq` `0x21270`, `rpmod` `0x7490c`); param 0 = highest road
+   class on the road layers ✅. Left open: param 0 on area layers, the unit of the param-1
+   scale, params 2–3 (not read by the RR code found), the meaning of the `0x07 +0x164`
+   trailer fields, whether the firmware reads the unreferenced `0x08` grid on 21734, DB-REL < 34.
 4. **Retire superseded code**: `decode_s2_links` (tile link, segment run, house numbers) replaces
    `decode_s2_coords` (kept, marked superseded); remove it with `oracle_s2_coords.py` and any
    script that treats `0x0E` as geometry.

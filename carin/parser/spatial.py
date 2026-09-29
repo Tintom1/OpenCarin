@@ -6,7 +6,9 @@ every block of DVDs 21708 and 21734 by scripts/geo/check_spatial_index.py
 
 - 0x07 (sector 3), DB-REL 34: 12 records of 28 bytes at +0x14, one per layer:
   u32 BLOCK_ID of the layer's first 0x08 block, root square as 4 x i32
-  (x0, y0, x1, y1), then 4 x u16 whose meaning is not known. One record points at
+  (x0, y0, x1, y1), then 4 x u16 parameters (02-geo.md §7.3: param 0 = highest road
+  class of a road layer, param 1 = lower scale bound, params 2-3 not read by the RR
+  firmware). One record points at
   the 0x1B TMC position index instead of a 0x08 block, with an all-zero square.
 - 0x08: S0 at +0x10 = u32 entries; +0x0C u32 = cell side in CARIN units. A layer's
   grid of N x N cells (N = root side / cell side) is split over physically
@@ -51,7 +53,7 @@ class Layer:
     index: int                        # position in the 0x07 directory
     grid: int                         # BLOCK_ID of the first 0x08 block
     root: Tuple[int, int, int, int]   # x0, y0, x1, y1 (CARIN units)
-    params: Tuple[int, int, int, int]  # meaning unknown (docs: ❓)
+    params: Tuple[int, int, int, int]  # see 02-geo.md §7.3 (param 0 ✅ roads, 1 🟡, 2-3 ❓)
 
 
 def parse_layer_directory(p07: bytes) -> List[Layer]:

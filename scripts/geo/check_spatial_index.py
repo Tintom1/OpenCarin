@@ -26,6 +26,14 @@ Claims tested (02-geo.md §7.3):
   8. Every tile's sides are root side / 2^k, 1:1 or 2:1, and its corner is a multiple of its
      own width (x) and height (y) from the root corner. (This replaces the old "multiples of
      98,304 from (0, 0)" rule; the script counts the tiles that break it.)
+  9. How the RR firmware finds the directory (dbq 0x2081c / 0x21270, db_bh_read 0x17cc): the
+     superblock S0 (8-byte records, RECORD_SIZE_TABLE T[0x1E]) starts with the BLOCK_ID of
+     0x07; T[0x05] + T[0x1A] = directory offset, T[0x18] = record size,
+     T[0x19] = 12 records + 16-byte trailer, T[0x17] = the 0x07 S0 offset.
+ 10. Parameter 0 of each road layer (tiles 0x00-0x03) = the highest road class
+     (S4 +0x10 & 0x0F; S4 record T[0x08] for 0x00, T[0x09] for 0x01-0x03) over its tiles, and
+     no segment has a higher class (rpmod 0x7490c). 0x01-0x03 always; 0x00 (CF=1) only with
+     --cf1-rust.
 
 Tile bounding boxes are read at +0x44 (0x00-0x03), +0x10 (0x06), +0x20 (0x14-0x16,
 0x1C-0x1E) (02-geo.md §7.4). CF=1 blocks are read from their plaintext prologue, which both
@@ -66,8 +74,18 @@ PROLOG = {0x00: T_PROLOG, 0x14: T_PROLOG_141516, 0x15: T_PROLOG_141516,
           0x1E: T_PROLOG_141516}
 
 
+ROAD_TYPES = (0x00, 0x01, 0x02, 0x03)
+
+
 def bid(b) -> int:
     return (b.sector << 8) | b.length
+
+
+def max_road_class(p: bytes, btype: int, layout: dict) -> int:
+    """Highest road class (S4 +0x10 & 0x0F) of a decoded 0x00-0x03 tile; -1 if S4 is empty."""
+    s4, n4 = struct.unpack_from(">HH", p, 8 + 4 * 4)
+    rec = layout[0x08] if btype == 0x00 else layout[0x09]
+    return max((p[s4 + rec * i + 0x10] & 0x0F for i in range(n4)), default=-1)
 
 
 def collect(vol: CarinVolume, fail: Counter):
@@ -92,8 +110,12 @@ def collect(vol: CarinVolume, fail: Counter):
     return heads, p08, p09, bbox
 
 
-def check_cf1_rust(iso: str, heads: dict, bbox: dict, fail: Counter) -> None:
-    """Decoded (carindb-rs) bbox == plaintext-prologue bbox on every CF=1 tile."""
+def check_cf1_rust(iso: str, heads: dict, bbox: dict, fail: Counter, layout: dict) -> dict:
+    """Decoded (carindb-rs) bbox == plaintext-prologue bbox on every CF=1 tile.
+
+    Returns {tile BLOCK_ID: highest road class} for every dumped 0x00 tile (claim 10)."""
+    classes = {}
+    by_sector = {k >> 8: k for k in heads}
     for t in sorted(PROLOG):
         want = {k >> 8: v[1] for k, v in bbox.items() if v[0] == t and heads[k].comp == 1}
         if not want:
@@ -104,6 +126,9 @@ def check_cf1_rust(iso: str, heads: dict, bbox: dict, fail: Counter) -> None:
             seen = bad = 0
             for f in os.listdir(d):
                 sector = int(f[7:15], 16)
+                if t == 0x00 and sector in by_sector and not f.endswith(".cf1raw.bin"):
+                    with open(os.path.join(d, f), "rb") as fh:
+                        classes[by_sector[sector]] = max_road_class(fh.read(), t, layout)
                 if sector not in want:
                     continue
                 with open(os.path.join(d, f), "rb") as fh:
@@ -113,6 +138,7 @@ def check_cf1_rust(iso: str, heads: dict, bbox: dict, fail: Counter) -> None:
         fail["CF=1 tile not decoded by carindb-rs"] += len(want) - seen
         fail["CF=1 decoded bbox != prologue bbox"] += bad
         print(f"  CF=1 {t:#04x}: {seen} / {len(want)} decoded, {bad} bbox mismatches")
+    return classes
 
 
 def main() -> int:
@@ -149,6 +175,19 @@ def main() -> int:
             fail["0x07 0x1B record has a square or parameters"] += any(l.root) or any(l.params)
         else:
             fail["0x07 record points at neither 0x08 nor 0x1B"] += 1
+    # 9. the firmware's route to the directory
+    T = vol.layout
+    sb = vol.read_sectors(0, 1)
+    s0_off, s0_cnt = struct.unpack_from(">HH", sb, 8)
+    b07 = struct.unpack_from(">I", sb, s0_off)[0] if s0_cnt else None
+    fail["superblock S0[0] is not the 0x07 block"] += not (
+        b07 in heads and heads[b07].type == 0x07 and heads[b07].sector == 3)
+    fail["T[0x1E] != 8 (superblock S0 record)"] += T.get(0x1E) != 8
+    fail["T[0x05] + T[0x1A] != directory offset"] += T.get(0x05, 0) + T.get(0x1A, 0) != DIR_OFFSET
+    fail["T[0x18] != directory record size"] += T.get(0x18) != DIR_RECORD_SIZE
+    fail["T[0x19] != 12 records + 16-byte trailer"] += \
+        T.get(0x19) != DIR_RECORDS * DIR_RECORD_SIZE + 16
+    fail["T[0x17] != 0x07 S0 offset"] += T.get(0x17) != struct.unpack_from(">H", p07, 8)[0]
     fail["0x07 roots differ"] += len(roots) != 1
     fail["0x07 root not square"] += any(r[2] - r[0] != r[3] - r[1] for r in roots)
     fail["0x07 != 1 record pointing at 0x1B"] += len(layers) - len(grid_layers) != 1
@@ -186,6 +225,7 @@ def main() -> int:
     cover = defaultdict(list)     # (grid, tile) -> [(x, y, side)] items
     nodes = defaultdict(set)      # (grid, tile) -> 0x09 blocks listing it
     tile_grid = {}
+    layer_tiles = {}              # name -> (layer, tile type, tiles)
     for name, layer, side, n, ents in grids:
         tiles = set()
         cells = 0
@@ -231,6 +271,8 @@ def main() -> int:
                     cover[(name, t)].append((ox + (j // q) * s, oy + (j % q) * s, s))
         types = Counter(bbox[t][0] for t in tiles)
         fail[f"{name}: more than one tile type"] += len(types) > 1
+        if layer and len(types) == 1:
+            layer_tiles[name] = (layer, next(iter(types)), tiles)
         print(f"  {name}: params {layer.params if layer else '-'}, {runs[name]} 0x08 blocks, "
               f"{n}x{n} cells of {side}, "
               f"{cells} non-empty, tiles {', '.join(f'{t:#04x} x {c}' for t, c in types.items())}")
@@ -277,8 +319,29 @@ def main() -> int:
     fail["tiles_at(centre) != tile"] += miss
     print(f"lookup: {len(layer_of) - miss} / {len(layer_of)} tiles found at their centre")
 
+    classes = {}
     if args.cf1_rust:
-        check_cf1_rust(args.iso, heads, bbox, fail)
+        classes = check_cf1_rust(args.iso, heads, bbox, fail, T)
+
+    # 10. parameter 0 of the road layers = highest road class of their tiles
+    for name, (layer, t, tiles) in sorted(layer_tiles.items()):
+        if t not in ROAD_TYPES:
+            continue
+        if t == 0x00 and not args.cf1_rust:
+            print(f"  {name} ({t:#04x}): road class check needs --cf1-rust, skipped")
+            continue
+        got = Counter()
+        for k in tiles:
+            if k not in classes and heads[k].comp != 1:
+                classes[k] = max_road_class(vol.block(heads[k].sector).payload, t, T)
+            if k in classes:
+                got[classes[k]] += 1
+            else:
+                fail["road tile not decoded (class check)"] += 1
+        top = max(got, default=-1)
+        fail["road layer param 0 != highest road class of its tiles"] += top != layer.params[0]
+        print(f"  {name} ({t:#04x}): param 0 = {layer.params[0]}, highest class per tile "
+              f"{dict(sorted(got.items()))}")
 
     bad = {k: v for k, v in fail.items() if v}
     print("failures:", bad or "none")

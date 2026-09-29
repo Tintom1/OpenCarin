@@ -58,7 +58,8 @@ quadtree** (CF=0, zero records, zero strings): structure, not coverage.
 
 > **Status (2026-09-29, issue #20): ✅ layout of `0x07` records, `0x08` and `0x09`, and the
 > lookup, on every block of DVDs 21708 and 21734** (`scripts/geo/check_spatial_index.py`,
-> 0 failures on both). ❓ the `0x07` layer parameters.
+> 0 failures on both). Layer parameters (RR firmware reader found, 2026-09-29): param 0 ✅
+> on road layers, param 1 🟡, params 2–3 ❓ (not read by the RR code found).
 
 Tile edges follow the quadtree of the `0x07` root square, not a fixed grid. On both DVDs
 every tile side is the root side divided by `2^k` (k = 4…16, i.e. 100,663,296 down to
@@ -96,8 +97,10 @@ the disc carries the index from a grid cell to its tiles. Library: `carin.parser
 | `+0x14 + 28·i`, i = 0…11 | 12 records of 28 bytes, inside the service data (before S0 at `+0x174`) | ✅ |
 | record `+0x00` | `u32 BLOCK_ID` of the layer's first `0x08` block; one record (i = 8) points at the `0x1B` TMC position index instead | ✅ |
 | record `+0x04` | root square `4 × i32` (`x0, y0, x1, y1`); the same square for all 11 `0x08` records, all-zero for the `0x1B` one | ✅ |
-| record `+0x14` | `4 × u16` layer parameters; values in the table below; all-zero for the `0x1B` record | observed ✅ · meaning ❓ |
-| `+0x164` | 16 bytes after the 12 records: `99555696 00000000 a6a62a9a 07d60000` (21708), `99555596 …` (21734) | ❓ |
+| record `+0x14` | `u16` param 0: highest road class (`S4 +0x10 & 0x0F`) stored in the layer, for the road layers `0x00`–`0x03`; compared with a road class by the RR (`rpmod` `0x7490c`, `0x29da0`; `dbq` `0x8e98`) | ✅ roads · 🟡 other layers |
+| record `+0x16` | `u16` param 1: lower scale bound; RR `dbq` uses the area layer whose `50 · param1 ≤` requested scale (`0x5478`, `0x5508`) | 🟡 (unit ❓, not read for road layers) |
+| record `+0x18`, `+0x1A` | `u16` params 2, 3: not read by the RR code found (its reader copies only 24 bytes of the record) | ❓ |
+| `+0x164` | 16-byte trailer after the 12 records: `99555696 00000000 a6a62a9a 07d60000` (21708), `99555596 …` (21734). RR reads bit fields of `+0x164` and `+0x16C`, the `u32` at `+0x168`, and at `+0x170` a `u16` in-block offset (`0x7D6`) of a string it copies (≤ 0x4C B; here `"\x01qxs"`) | layout of reads ✅ · meaning ❓ |
 
 The root square is `3 · 2^29` wide on both DVDs, lon −75.00..214.91, lat −203.91..86.00;
 it is the quadtree's frame, not the data's extent.
@@ -176,10 +179,55 @@ on the whole disc), and its 1,476 `0x09` blocks and 3,129 `0x06` tiles are in no
 `0x07` reaches. So on 21734 the lookup reaches 28,433 of 29,909 `0x09` blocks and 144,143 of
 147,272 tiles; the rest are exactly those of this grid. Whether the firmware ever reads it ❓.
 
-**Layer parameters ❓.** Parameters 1 and 2 look like a display-scale range (`(0, 1)`,
-`(1, 40)`, `(40, 120)`, `(120, 1200)`, `(1200, 3000)`, `(3000, 65535)`) and QGIS_VDO names
-them `zoom_from`/`zoom_to` (below), but no firmware reader was found (`05-failed-attempts.md`
-§9.12): the meaning is not confirmed. The fourth `u16` is 0 on every record of both DVDs.
+**Layer parameters: the RoadRunner reader** (2026-09-29, RR `V_2_RR_0101_BMWC01S`
+`bsw2`; addresses are module offsets; Ghidra programs `RR_0101_bsw2_dbq.bin`,
+`RR_0101_bsw2_rpmod.bin`, `RR_0101_bsw2_db_bh_read.bin`).
+
+*How the firmware finds `0x07`* ✅. The superblock S0 (`+0x08` = offset `0x60`, `+0x0A` = count)
+is a list of 8-byte records (`T[0x1E]` = 8); the first `u32` of record `n − 1` is a
+`BLOCK_ID`. `db_bh_read` `0x17cc` (at `0x256c`) and `dbq` `0x2081c` (`n = 1`) read record 0 =
+`0x304` and load that block. Records are then addressed as
+`block + T[0x05] + T[0x1A] + k · T[0x18]` (RECORD_SIZE_TABLE, descriptor `+0x28`, `+0x52`,
+`+0x4E`; 8 + 12 + 28·k = `0x14 + 28·k` on DB-REL 34) and the trailer as `k = 12`: the record
+count is hard-coded, and `T[0x19]` = `0x160` = 12 × 28 + 16 covers records plus trailer
+(`T[0x17]` = `0x174` = S0).
+
+*Reader* ✅. `dbq` `0x21270` (twins: `rpmod` `0x65b98`, `dbpa` `0x1cf98`) maps a tile type to a
+record — `0x00`→0, `0x06`→1, `0x01`→2, `0x02`→3, `0x03`→4, `0x14`→5, `0x15`→6, `0x16`→7,
+`0x1C`→9, `0x1D`→10, `0x1E`→11 — and copies **24 bytes**: `BLOCK_ID`, root square, param 0,
+param 1. `0x21074` reads record 8's `BLOCK_ID` (the `0x1B` index); `0x2af6c` / `0x2b92c` read
+the grid (cell side at `0x08 +0x0C`, `N = (x1 − x0) / cell side`).
+
+*Param 0* — observed in code ✅:
+- `rpmod` `0x7490c` returns its low byte; when the record is missing it falls back to
+  **6, 0, 1, 2 for types `0x00`, `0x01`, `0x02`, `0x03`** — the values stored on both DVDs.
+- `rpmod` `0x50aa0` stores it per level (`gp[0x6650 + i]`); the route search `0x29da0`
+  (`0x29fb8`, `0x2ab80`) moves an edge to level `i + 1` only if that level's value ≥ the edge's
+  road class (edge `+0x18` = `S4 +0x10 & 0x0F`, written by `0x4e02c`).
+- `dbq` `0x8e98` rejects a layer when `(s16) param0 <` the largest requested class (class
+  bytes must be < 7, `0x8f58`); `0xFFFF` of `0x1E` reads as −1 there.
+
+Meaning on the road layers ✅: the **highest road class stored in the layer**. On every
+segment of every `0x00`–`0x03` tile of both DVDs (S4 record 32 B for `0x00`, 26 B = `T[0x09]`
+for `0x01`–`0x03`), class ≤ param 0 and the maximum is reached: `0x00` 0…6, `0x03` 0…2,
+`0x02` 0…1, `0x01` 0 only. On the other layers the firmware does the same comparison, but
+what a "class" is for area tiles is ❓.
+
+*Param 1* — observed in code ✅: `dbq` `0x5478` / `0x8e98` test `2 · scale ≥ 100 · param1`;
+`0x5508` / `0x8f58` try `0x1E`, `0x1D`, `0x14`, `0x1C`, `0x15` in that fixed order and fall
+back to `0x16` — the order of decreasing param 1 (3000, 1200, 320, 120, 40, 1) — so they pick
+the coarsest area layer whose `50 · param1` does not exceed the requested scale. RPC handlers
+`0x21940` / `0x219d4` return `50 · param1` (min/max, and per layer with param 0) for the six
+area layers. Meaning 🟡: lower scale bound of the layer. The scale's unit is ❓ (request
+`+0x2C`, a power of two in `0x8f58`), and no code reading param 1 for the road layers was found.
+
+*Params 2, 3* ❓: never copied by the reader, and no other code addresses the records through
+`T[0x18]` in the 17 `bsw2` modules or the 18 `navboot` application modules scanned (code that
+hard-codes the offsets would not be caught). On the
+data, param 2 of each layer equals param 1 of the next coarser one in both chains (roads
+0 → 1 → 120 → 1200 → 3000; areas 1 → 40 → 120 → 320 → 1200 → 3000 → 65535): an upper bound, as
+QGIS_VDO's `zoom_to` suggests, but not confirmed by firmware. Param 3 is 0 on every record.
+The 24-byte copy also fits the 24-byte DB-REL 22 records.
 
 **Relation to QGIS_VDO** (`lugovskovp/QGIS_VDO`, GPL-3.0, commit `91c516e`; read, not
 copied). Confirmed by the rules above:

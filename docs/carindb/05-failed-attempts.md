@@ -165,6 +165,14 @@ Second image `NAV_DB_21734` (build 2018-05-09, **same binary schema**).
    first, divide by a value loaded elsewhere, or use code my windows split. Not tried: Ghidra
    cross-references from the `0x07` read, other RR builds, Mk3. The parameters stay ❓, and
    QGIS_VDO's names `zoom_from`/`zoom_to` are not evidence.
+
+   **Superseded (2026-09-29): reader found** by following the superblock S0 `BLOCK_ID`
+   (`db_bh_read` `0x17cc`, `dbq` `0x2081c`) — see `02-geo.md` §7.3. Why both shapes missed it:
+   the reader (`dbq` `0x21270`) addresses a record as `block + T[5] + T[0x1A] + k · T[0x18]`
+   with `k` from a switch on the tile type, and copies it as six `lw`/`sw` pairs (`+0` … `+0x14`),
+   so there are no `lh` loads at `+0x14`/`+0x16` and no fixed stride `0x1C`; the parameters are
+   then read from the stack copy (`lhu 0x1c/0x1e($sp)`). The grid readers (`0x2af6c`,
+   `0x2b92c`) divide the root width by the cell side once, not twice.
 3. **Who else points at the unreferenced `0x08` grid on 21734.** `carindb-rs xref 0x32f1e060`
    (its first block): 0 hits on the whole disc. The same scan for its 1,476 `0x09` and 3,129
    `0x06` `BLOCK_ID`s was stopped: with 4,605 IDs it had covered about 3% of the disc after
