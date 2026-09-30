@@ -77,7 +77,9 @@ Created         : 2015-08-04 16:09:55
 
 > **CD-i Bridge, and burning a modified CD** (CD-ID 2952, the disc the Renault CNI1 takes;
 > tested on the unit 2026-09-28/29).
-> - The CD is a **CD-i Bridge** disc (Green Book), not a plain ISO: the PVD's system identifier
+> - The CD is a **CD-i Bridge** disc, not a plain ISO. CD-i Bridge (White Book) is built on CD-i
+>   (Green Book) so that the same disc also works as a CD-ROM XA disc in a CD-ROM drive. The PVD's
+>   system identifier
 >   is `CD-RTOS CD-BRIDGE` (volume `NAV_DB`, set `CARIN`, application `CDI/PD`) and every
 >   sector is CD-ROM XA **Mode 2** with an 8-byte CD-i subheader (Form 1 data: submode `0x08`,
 >   `0x88` on the last sector of a file).
