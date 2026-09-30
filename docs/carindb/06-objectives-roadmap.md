@@ -134,8 +134,13 @@ Every block is readable except one group:
 ### D. Writer / compiler
 14. Encoders: plain (CF=0) `0x00`–`0x03` tiles first; then `0x0E`, `0x0D`/`0x0F`/`0x11`,
     `0x06`/`0x10`, `0x14`–`0x16`, the spatial index `0x07`–`0x09`, superblock and
-    `RECORD_SIZE_TABLE`. CF=1 is not needed to generate a valid DB (only `encode_type0E` exists;
-    it now keeps the names). Evidence the approach works: renamed streets and a made-up city
+    `RECORD_SIZE_TABLE`. The units read plain (CF=0) blocks, but a **CD needs CF=1 to fit in
+    ~700 MB**: with every block plain, `carindb` would grow from 322 to ~509 MB on CD-ID 2952 and
+    from 437 to ~640 MB on CD-ID 21594 (packed `0x00` tiles decode to 1.84× / 1.95× their size,
+    `0x0E` to 2.27× / 2.05×, `0x14`–`0x16` to ~1.4×; 300 blocks sampled per type), and an OSM
+    region is larger still. Encoders: `encode_type00` (bit-identical to the discs outside the
+    text blob, tested on a CNI1) and `encode_type0E` exist; `0x14`–`0x16` / `0x1C`–`0x1E` have
+    none yet. A DVD has room for plain blocks. Evidence the approach works: renamed streets and a made-up city
     run on a CNI1 (PR #13, `01-architecture.md` §4.4.1); the destination label still showed the
     old names, so find which copy it reads before generating whole regions.
     Done on a CNI1 with CD-ID 2952 (2026-09-28/29): plain `0x00` tiles from our own records

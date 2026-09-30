@@ -77,7 +77,7 @@ With the reading and decoding of the binary format solved, our focus is shifted 
 * Validate routing accuracy by computing test routes and comparing against OSM/OSRM.
 
 ### 3. OpenStreetMap to CARiN Serializer & ISO Compiler 🟡 Ongoing
-* **Block Serializers**: Generate uncompressed (CF=0) `0x00`–`0x03` road network tiles from OSM ways and nodes (CF=1 is not required for writing custom discs). Hand-built plain tiles, their coarse parents and a city's POI index already run on a CNI1; the rules they need are in [`03-road-network.md`](docs/carindb/03-road-network.md) §6.7 and [`01-architecture.md`](docs/carindb/01-architecture.md) §4.4.2.
+* **Block Serializers**: Generate `0x00`–`0x03` road network tiles from OSM ways and nodes. The units read plain (CF=0) tiles, but a CD needs CF=1 packing to stay under ~700 MB (all-plain `carindb` would be ~509 MB for CD-ID 2952 and ~640 MB for CD-ID 21594, against 322 and 437 MB packed); `encode_type00` and `encode_type0E` exist. Hand-built plain tiles, their coarse parents and a city's POI index already run on a CNI1; the rules they need are in [`03-road-network.md`](docs/carindb/03-road-network.md) §6.7 and [`01-architecture.md`](docs/carindb/01-architecture.md) §4.4.2.
 * **Spatial Index Builder**: Generate quadtree directory `0x07` → grid `0x08` → cell matrix `0x09`.
 * **Administrative Hierarchy & Tries**: Compile country table `0x0A`, city directory `0x0C`, and search tries `0x0D` / `0x0F` / `0x11`. The `0x0F` build rule and the `0x11` POI index are known and tested on a CNI1; `0x0D`'s split rule is still open.
 * **Disc Masterer**: Package 512-byte sector-aligned `DB_0` / `DB_1` files and generate bootable dual-layer ISO 9660 filesystem images.
