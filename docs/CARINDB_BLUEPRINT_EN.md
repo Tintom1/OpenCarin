@@ -75,6 +75,37 @@ Created         : 2015-08-04 16:09:55
 > `carinet16s512` in the ABSTRACT file is independent confirmation that the CARIN
 > addressing unit is **512** bytes ("s512").
 
+> **CD-i Bridge, and burning a modified CD** (CD-ID 2952, the disc the Renault CNI1 takes;
+> tested on the unit 2026-09-28/29).
+> - The CD is a **CD-i Bridge** disc, not a plain ISO. CD-i Bridge (White Book) is built on CD-i
+>   (Green Book) so that the same disc also works as a CD-ROM XA disc in a CD-ROM drive. The PVD's
+>   system identifier
+>   is `CD-RTOS CD-BRIDGE` (volume `NAV_DB`, set `CARIN`, application `CDI/PD`) and every
+>   sector is CD-ROM XA **Mode 2** with an 8-byte CD-i subheader (Form 1 data: submode `0x08`,
+>   `0x88` on the last sector of a file).
+> - Root files: `ABSTRACT` ("This CD-BRIDGE formatted disc contains a digital road map database
+>   for the CARiN navigation system…"), `BIBLIOGR` (`CD-ID 2952`, `DB-REL 22`,
+>   `BSW-REL 91.0 91.1 92.5 … 94.3`, CR-separated; the same fields as the DVD's), `COPYRIGH`, the
+>   `CDI` directory with the CD-i boot program `CDI/PD`, and `carindb` (from LBA 2274).
+> - **Burning a changed disc.** Edit the raw image (2,352-byte sectors), recompute the EDC and the
+>   P and Q ECC of every changed sector (Mode 2 Form 1: the address field is zeroed for the ECC,
+>   and P is written before Q, which reads it), and burn the image raw with a TOC that declares
+>   `CD_ROM_XA` and `TRACK MODE2_RAW`, e.g. `cdrdao write --device /dev/sr0 --speed 8 --eject
+>   X.toc`. Rip with `cdrdao read-cd --read-raw --driver generic-mmc-raw`. Every disc tested on the
+>   CNI1 was made this way (8×, Maxell and LOGIK CD-Rs). An ordinary ISO burn writes Mode 1
+>   sectors without the CD-i subheaders; that was not tested.
+> - The subheader's file and channel numbers don't seem to matter: a disc with CD-ID 21594's
+>   `carindb` inside CD-ID 2952's CD-i shell, whose `carindb` sectors carry file 0 / channel 0
+>   instead of 1 / 1, works fully. The disc also keeps CD-ID 2952's `BIBLIOGR` (`DB-REL 22`)
+>   around the DB-REL 34 database, so the CNI1 doesn't check those values against `carindb`.
+>   CD-ID 21594 as issued is a Mode 1 disc; whether the CNI1 accepts that format was not
+>   established (the copy tried was a bad burn).
+> - `carindb` may grow: the `CDI` directory and `CDI/PD` can move behind it once the PVD volume
+>   size, both path tables and the root and `CDI` directory records are patched (tested on the
+>   CNI1 with a copied `0x00` tile appended to `carindb`).
+> - The CC-93 firmware in the repo runs on OS-9/68K, the system CD-i's CD-RTOS is built on, so
+>   CD-i Bridge discs are plausibly the CARiN CD format in general; only the CNI1 was tested.
+
 ### 1.1 Virtual Address Space `DB_0` + `DB_1`
 
 `DB_0` and `DB_1` form **a single sector space**. Each file spans a window of
