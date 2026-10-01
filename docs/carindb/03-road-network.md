@@ -516,7 +516,8 @@ own records, on burned discs:
 **Section 10 (`T[0x14]` = 8 B): forbidden turns.** A segment's entries run from its `+0x12` to the next segment's. Each entry is `u32 BLOCK_ID` (own tile), `u16` offset of a target segment and `u16` flag:
 - flag 0: the target meets the owner at its start node (548 / 562);
 - flag 1: at its end node (514 / 542);
-- flags 2 and 3 are rare and not understood.
+- flags 0 and 1 also occur with the owner itself as the target (CD-ID 2952, 6,000 sampled tiles: 106 with flag 0, 97 with flag 1): a ban on turning back into the same segment at its start or end node, i.e. a **U-turn ban**, stored like any other entry. This is read from the data alone; not yet checked against OSM `no_u_turn` or on a unit;
+- flags 2 and 3 are not turn bans. On CD-ID 2952 (same sample) they come in pairs on the same segment, both pointing at the segment itself (1,055 with flag 2, 1,033 with flag 3), plus 727 flag-2 entries into another segment at the owner's start node and 713 flag-3 entries at its end node. The owners have form of way 7 (`+0x0B & 0xF`, a value not otherwise explained) and usually a dead end at one node, which suggests an access rule such as "no through traffic" rather than a turn ban. Not understood further.
 
 In central Dublin (CD-ID 21594), 55% of these junctions lie within 15 m of an OSM turn restriction, against 10% for random junctions, and 57% of OSM restriction vias have an entry within 20 m. Using the bearings to classify each entry's turn: at OSM `no_right_turn` junctions 33 of 38 entries are right turns; at `only_straight_on` junctions all listed turns are left or right; at `only_right_turn` junctions they are left turns. Found in the RR firmware (2026-09-28): `rpmod` `sub_06322c` reads the range from `+0x12` and `sub_01fd80` splits the entries by flag bit 0 into start-node and end-node lists (≤ 8 each).
 
