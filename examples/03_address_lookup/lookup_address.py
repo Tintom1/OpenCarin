@@ -16,8 +16,9 @@ code in `carin/parser` (docs/carindb/01-architecture.md §4.4, 03-road-network.m
   0x04  house numbers             one record per S4 segment: the numbers on its two sides
 
 Position of the number: linear along the segment polyline between the numbers stored for it,
-first number at the start node (checked against OSM, 03-road-network.md §6.4). The point is on
-the road centre line, not beside it; the segment's two end points are printed too.
+first number at the start node, then moved --offset metres to the side of the number: side A of
+the record is the left and side B the right of the start -> end direction (checked against OSM,
+03-road-network.md §6.4). The point on the centre line and the segment's end points are printed too.
 """
 from __future__ import annotations
 
@@ -139,7 +140,10 @@ def covers(side, number: int, mixed: bool) -> bool:
 
 
 def along(coords, t: float):
-    """Point at fraction t (0..1) of the polyline's length, flat-earth distances."""
+    """(lon, lat, east, north) at fraction t (0..1) of the polyline's length, flat-earth distances.
+
+    (east, north) is the unit direction of the polyline there, in metres.
+    """
     from math import cos, hypot, radians
     k = cos(radians(coords[0][1]))
     dist = [0.0]
@@ -150,7 +154,17 @@ def along(coords, t: float):
         if target <= dist[i] or i == len(coords) - 1:
             f = 0 if dist[i] == dist[i - 1] else (target - dist[i - 1]) / (dist[i] - dist[i - 1])
             (x0, y0), (x1, y1) = coords[i - 1], coords[i]
-            return x0 + f * (x1 - x0), y0 + f * (y1 - y0)
+            dx, dy = (x1 - x0) * k, y1 - y0
+            n = hypot(dx, dy) or 1.0
+            return x0 + f * (x1 - x0), y0 + f * (y1 - y0), dx / n, dy / n
+
+
+def offset(lon: float, lat: float, east: float, north: float, side: int, metres: float):
+    """Move a point `metres` to the left (side +1) or right (-1) of the direction (east, north)."""
+    from math import cos, radians
+    m_lat = 111_320.0
+    return (lon + side * (-north) * metres / (m_lat * cos(radians(lat))),
+            lat + side * east * metres / m_lat)
 
 
 def main() -> int:
@@ -160,6 +174,8 @@ def main() -> int:
     ap.add_argument("--city", default="modugno")
     ap.add_argument("--street", default="via roma")
     ap.add_argument("--number", type=int, default=114)
+    ap.add_argument("--offset", type=float, default=12.0,
+                    help="metres from the road centre line to the side of the number")
     args = ap.parse_args()
 
     vol = CarinVolume(IsoImage(args.iso))
@@ -198,20 +214,22 @@ def main() -> int:
                 if seg is None:
                     continue
                 mixed = r["scheme"] == SCHEME_MIXED
-                for side in (r["side_a"], r["side_b"]):
+                for label, side, left in (("A, left", r["side_a"], 1), ("B, right", r["side_b"], -1)):
                     if not covers(side, args.number, mixed):
                         continue
                     lo, hi = side
                     t = 0.5 if lo == hi else (args.number - lo) / (hi - lo)
-                    lon, lat = along(seg["coords"], min(max(t, 0.0), 1.0))
+                    lon, lat, east, north = along(seg["coords"], min(max(t, 0.0), 1.0))
+                    olon, olat = offset(lon, lat, east, north, left, args.offset)
                     a, z = seg["coords"][0], seg["coords"][-1]
                     hits += 1
                     print(f"\nRESULT    : n. {args.number} on segment {r['index']} of tile {link['tile']:#x}, "
-                          f"numbers {lo}..{hi} (scheme {r['scheme']})")
-                    print(f"  position: {lat:.6f}, {lon:.6f}")
+                          f"numbers {lo}..{hi} (scheme {r['scheme']}, side {label} of the start -> end direction)")
+                    print(f"  on road : {lat:.6f}, {lon:.6f}")
+                    print(f"  position: {olat:.6f}, {olon:.6f}   ({args.offset:g} m to the {label.split(', ')[1]})")
                     print(f"  segment : {a[1]:.6f}, {a[0]:.6f}  ->  {z[1]:.6f}, {z[0]:.6f}"
                           f"  ({len(seg['coords'])} points, class {seg['display_class']})")
-                    print(f"  map     : https://www.openstreetmap.org/?mlat={lat:.6f}&mlon={lon:.6f}#map=19/{lat:.6f}/{lon:.6f}")
+                    print(f"  map     : https://www.openstreetmap.org/?mlat={olat:.6f}&mlon={olon:.6f}#map=19/{olat:.6f}/{olon:.6f}")
     if not hits:
         print("no segment found for that number")
     return 0 if hits else 2

@@ -15,8 +15,9 @@ script lists each and only the one whose numbers hold 114 gives a position:
 city      : modugno (post town: bari)   [0x0A -> 0x0D -> 0x0C]
 street    : via roma   [0x0F -> 0x0E]  numbers even (112, 128)  odd None  tile 0x4c184f18, 1 segments
 
-RESULT    : n. 114 on segment 42 of tile 0x4c184f18, numbers 112..128 (scheme 2)
-  position: 41.088942, 16.791200
+RESULT    : n. 114 on segment 42 of tile 0x4c184f18, numbers 112..128 (scheme 2, side A, left of the start -> end direction)
+  on road : 41.088942, 16.791200
+  position: 41.089022, 16.791105   (12 m to the left)
   segment : 41.088776, 16.790911  ->  41.090147, 16.793180  (6 points, class 2)
 ```
 
@@ -32,9 +33,12 @@ RESULT    : n. 114 on segment 42 of tile 0x4c184f18, numbers 112..128 (scheme 2)
 
 ## Limits
 
-- The point is **on the road centre line**, placed linearly between the segment's two stored
-  numbers, with the first number at the start node (97.6% of sides on Bari against OSM, A5 in
-  `docs/carindb/06-objectives-roadmap.md`). The side of the road is known too (side A left, side B
-  right of the start → end direction, 91% / 95%) but the example does not offset the point to it.
+- The side is right: OSM's own node for Via Roma 114 is 10.6 m to the left of the segment. The
+  position along the road is not: numbers are placed linearly between the segment's two stored
+  numbers (112..128), which puts 114 at 12% of the segment, while OSM has it at 44%. The result is
+  77 m from OSM's point, along the road. Houses are not evenly spaced, so a better position
+  needs more than the two end numbers (not known to be on the disc).
+- First number at the start node: 97.6% of sides on Bari against OSM; side A left and side B right
+  of the start → end direction: 91% / 95% (A5, `docs/carindb/06-objectives-roadmap.md`).
 - Exact name match only (lowercase, as on the disc); the word-reordered alias records are skipped.
 - Only the DB-REL 34 DVD layout is checked.
