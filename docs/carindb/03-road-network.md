@@ -513,6 +513,51 @@ own records, on burned discs:
    blobs of the area and line layers `0x14`–`0x16` (`02-geo.md` §8.4); emptying the blobs removes
    them.
 
+**Node cycles, ordering and editing a tile in place (DVD 21708, tile `0x4c184f18`, 2026-10-01).** A section 5
+node is `u16 u, u16 v, u16 first segment, u16 flags`. The segments that meet at a node form a cycle: the node
+holds the offset of the first one and each segment's `+0x06` (if the node is its start) or `+0x08` (if its end)
+the next. On this tile the stored cycles equal the segments found by node in 358 / 358 nodes, and a cycle with
+at least two members is ordered **clockwise by the bearing leaving the node** (`+0x0E` at a start node, `+0x0F`
+at an end node) **starting from the smallest bearing**: 262 / 262 cycles (234 / 234 of three or more members run
+clockwise, none counter-clockwise). The two ordering rules above hold on the whole tile: the start node has the
+lower `(x, y)` in 460 / 460 records and the S5 nodes are sorted inside each level group of section 3
+(`+2` of a section 3 record is the group's first node). Section 10 entries (27 / 27) name a segment that shares
+a node with their owner. With these rules a tile can be edited without moving a byte of any section (same
+record counts): node positions, shape points, segment ends, lengths and bearings, junction type, one-way bits,
+node cycles. `examples/04_update_modugno_roundabout` does this to replace a crossing by a roundabout; the
+re-encoded tile (12,125 B in the original 24 sectors) reads back identically with the Python and the Rust
+decoder. Not yet run on a unit.
+
+**Editing a tile that grows, and what points into it (DVD 21708, tiles `0x4c184f18` and `0x5c58a51c`, 2026-10-01).**
+Records can be added and removed if every pointer is rewritten. `carin/parser/cf1/tile00.py` parses a decoded `0x00`
+tile into objects that refer to each other and builds it again; its docstring is the pointer catalog (every absolute
+in-tile offset: S4 `+0x00 +0x02 +0x04 +0x06 +0x08 +0x12 +0x14 +0x16`, street record, signposts; S5 / S6 `+4`; S3; S10 / S13 `+4`;
+S11 text; S0 / S1 / S2 / S14 links). The sections follow each other in the order 0 1 2 3 4 5 6 7 9 8 10 11 12 13 14 (name blob last); S11 and S12
+are followed by two zero bytes (S4 `+0x1E` / `+0x14` of the sentinel point at the end of the section, before them). The ranges
+`+0x04` (S7), `+0x12` (S10), `+0x14` (S12), `+0x16` (S13) and `+0x1E` (S11) are monotone covers: a segment owns the entries up to the next
+segment's pointer (460 / 460 here). Checked on 62 tiles of the disc (40 street CF=1 tiles over the size range, 20 coarse, the two of this test; `scripts/codec_cf1/check_tile00_relayout.py`):
+parse and build give the tile byte for byte, and a tile whose sections are shifted by extra bytes has the same graph and re-encodes (`encode_type00`) to the same decoded bytes.
+Facts found on the way:
+- **Level group k of S3 holds the class-k segments and the S5 nodes whose lowest class is k** (7 groups for classes 0 to 6; 460 / 460 segments and 294 / 294 nodes
+  here, 7 groups). A new record goes into the group of its class; a class change moves it.
+- A node with one segment holds that segment as its first and each segment's next at that node is itself (32 / 32 here); at an S6 edge node a lone segment's next is 0 (64 / 64).
+- The cycle and ordering rules of the paragraph above hold on 43 of 62 sampled tiles untouched; the exceptions are 10 cycles at nodes on the tile edge and 36 S10 entries
+  whose target shares no node with the owner (19 tiles). The tile of this test has none.
+- A zlib block's header `+7` is its decoded length in 512-byte sectors (330 / 330 blocks checked); it must be rewritten when a coarse tile grows by a sector.
+- **Coarse tiles** (`0x01`-`0x03`, zlib on this DVD) have 26-byte S4 records: the 32-byte layout up to `+0x19`, without the street record, flags and signpost pointer.
+  A coarse segment of a three-way node is its street record (same fields, shape, bearings): found by the absolute coordinates of its end nodes, 6 / 6 here. An empty S14 may be written with offset 0.
+- Words 24-26 of the 116-byte header of a street tile (`0x726 0x726 0x724` here) vary and match no count, length or class sum tried; an edit leaves them as they are. Unknown.
+
+*What points into a street tile* (`carindb-rs xref`, 39 s over 315,095 blocks; `carin/parser/refs.py`): the tile `0x4c184f18` appears in 1,080 places.
+`0x0E`: S2 `+16` BLOCK_ID, `+20` S4 offset, `+22` count (934 runs in 320 blocks). `0x10`: its section 4 holds 8-byte entries u32 BLOCK_ID, u16 S4 offset, u16 flag, one segment per street and tile (24 here, 2 blocks).
+`0x17` (TMC locations): x, y, idA, idB (u32), offA, offB (u16) (4 hits). `0x04`: header `+0x0C`, one record per S4 record. `0x00` neighbours: S6 `+8` / `+12` twin offset in the edited tile's S6 (64
+in 5 tiles). Only BLOCK_ID, no offset: `0x03` S8, `0x09` cell, the `+0x58` header word of 32 street tiles (the parent coarse tile), S9. Nothing was found that stores an S5 node offset of the tile.
+A coarse tile is referenced by its four coarse neighbours (S6 twins) and the same BLOCK_ID-only places. Inserting records shifts every S4 offset after the insertion (918 of 934 `0x0E` runs here);
+**an edit that keeps the tile in its sectors changes no BLOCK_ID** (its low byte is the length in sectors). Every block rewritten this way kept its extent (a zlib block with at least 142 spare bytes).
+Where a record is removed, an entry that names it is redirected to the nearest record of the same street (`0x10`, `0x17`) and a run shrinks to its surviving, still consecutive records (`0x0E`),
+whose house-number ranges are recomputed from the new `0x04` records (the envelope rule above).
+`examples/04_update_modugno_roundabout` (steps 5 to 7) uses all of it: roundabout of 6 ring records, 4 links and 2 arms of Viale della Repubblica in 24 sectors (12,208 of 12,288 B). Not run on a unit.
+
 **Section 10 (`T[0x14]` = 8 B): forbidden turns.** A segment's entries run from its `+0x12` to the next segment's. Each entry is `u32 BLOCK_ID` (own tile), `u16` offset of a target segment and `u16` flag:
 - flag 0: the target meets the owner at its start node (548 / 562);
 - flag 1: at its end node (514 / 542);

@@ -151,8 +151,17 @@ Every block is readable except one group:
     `0x02` and `0x01` parents, and a city's whole POI index (`0x06`, `0x10`, `0x11`, `0x0C`
     sections 3 and 5; `03-road-network.md` §6.7, `01-architecture.md` §4.4.2). Next: a POI index
     and coarse tiles for a disc of our own roads only, then a writer in the library.
+    Editing a street tile of a DVD so that it **grows** (2026-10-01, DVD 21708): `carin/parser/cf1/tile00.py`
+    (parse to a model, build with every pointer rewritten; null relayout identical and forced shifts keep the graph on 62
+    tiles), `carin/parser/refs.py` (what points into a tile: `0x0E`, `0x10`, `0x17`, `0x04`, S6 twins) and `volume_edit.py`
+    (re-encode and write a block in its extent). `examples/04_update_modugno_roundabout` redraws a roundabout from OSM with it,
+    in the street and the coarse tile, 331 blocks rewritten in place. Done on a disc image only; **not run on a unit**
+    (`examples/04_update_modugno_roundabout/HARDWARE_TEST.md`). Not done: moving a block that outgrows its sectors
+    (no free room on DVD 21708: blocks tile `DB_0` (4,194,198 of 4,194,199 sectors, one single gap after block 0) and `DB_1` (2,295,483 of 2,295,483) completely; a block that outgrows its sectors would mean growing `DB_1` and patching the ISO structures, as in the CD case, `01-architecture.md` §4.4.1),
+    BLOCK_ID rewrites if a block changes length, other block types.
 15. Disc image builder (DVD split `DB_0`/`DB_1`, 512-byte unit) and a round-trip test:
-    re-encode a region of 21708 and read it back with our reader.
+    re-encode a region of 21708 and read it back with our reader. Partly: `volume_edit.write_block` and `examples/04_update_modugno_roundabout/06_patch_references.py`
+    patch blocks of a copy in place and read them back; building and burning a new volume is not done.
 
 ### E. Housekeeping
 16. Refresh the graphify graph (`graphify update .`); it still points at the old `carin/parser/cf1.py`.
