@@ -106,8 +106,11 @@ Every block is readable except one group:
    script that treats `0x0E` as geometry.
 5. ~~**`0x04` vs `0x0E` S2 house numbers**~~ Done 2026-09-28 (`03-road-network.md` §6.4):
    `0x04` holds the numbers per segment and side, `0x0E` S2 their envelope per linked run
-   (98.8%, `scripts/routing/check_04_house_numbers.py`). Left open: which side is left/right
-   and whether `f0`/`f1` are the start-node numbers (needs segment geometry).
+   (98.8%, `scripts/routing/check_04_house_numbers.py`). Side and end done 2026-10-01 against OSM
+   addresses (`scripts/routing/check_house_number_sides.py`, §6.4): `f0`/`f1` at the start node
+   (97.6%), `(f0, f2)` on the left and `(f1, f3)` on the right of the start → end direction
+   (91% / 95%, Bari). Left open: the ~9% of segments that disagree, scheme 1 (mixed), a check
+   outside Italy, and the RR firmware reader of `0x04` (not yet found).
 
 ### B. RoadRunner firmware (`bsw2`)
 6. **Route cost**: find the readers of speed (`+0x0A & 0x1F`) and the edge fields from

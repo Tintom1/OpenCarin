@@ -32,9 +32,9 @@ RESULT    : n. 114 on segment 42 of tile 0x4c184f18, numbers 112..128 (scheme 2)
 
 ## Limits
 
-- The point is **on the road centre line**, placed linearly between the segment's two stored numbers.
-  Which side is left or right, and whether the first number is at the start node, are not known yet
-  (`docs/carindb/06-objectives-roadmap.md`, A5), so the position can be off by the segment length
-  and the sense of the interpolation is a guess. The segment's end points are printed too.
+- The point is **on the road centre line**, placed linearly between the segment's two stored
+  numbers, with the first number at the start node (97.6% of sides on Bari against OSM, A5 in
+  `docs/carindb/06-objectives-roadmap.md`). The side of the road is known too (side A left, side B
+  right of the start → end direction, 91% / 95%) but the example does not offset the point to it.
 - Exact name match only (lowercase, as on the disc); the word-reordered alias records are skipped.
 - Only the DB-REL 34 DVD layout is checked.

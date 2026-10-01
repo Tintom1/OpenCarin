@@ -15,11 +15,9 @@ code in `carin/parser` (docs/carindb/01-architecture.md §4.4, 03-road-network.m
   0x00  street-level tile         the segments' geometry (WGS84 polyline)
   0x04  house numbers             one record per S4 segment: the numbers on its two sides
 
-Position of the number: linear along the segment polyline between the numbers
-stored for it. Which side of the road is left or right, and whether the first
-number is at the start node, are not known yet (06-objectives-roadmap.md A5), so
-the point is on the road, not beside it, and the direction is a guess; the
-segment's two end points are printed too.
+Position of the number: linear along the segment polyline between the numbers stored for it,
+first number at the start node (checked against OSM, 03-road-network.md §6.4). The point is on
+the road centre line, not beside it; the segment's two end points are printed too.
 """
 from __future__ import annotations
 
