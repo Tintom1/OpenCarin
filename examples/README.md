@@ -11,6 +11,9 @@ Demonstrates how to extract the full road network (graph) for a single country. 
 3. Filters the spatial index of all 74,247 `0x0E` road parcels to find exact geometric intersections.
 4. Outputs the specific list of `0x0E` virtual sectors containing the country's roads.
 
+### `03_address_lookup`
+Looks up a street address (country, city, street, number) through the disc's own search structures (`0x0A` → `0x0D` → `0x0C` → `0x0F` → `0x0E` → `0x00` / `0x04`) and prints its position, with an OpenStreetMap link to check it.
+
 ## Setup
 Before running the examples, ensure your environment is fully set up:
 ```bash

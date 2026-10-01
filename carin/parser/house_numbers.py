@@ -17,8 +17,11 @@ these ranges over the linked SECTION_4 run: run_envelope() reproduces them for
 98.8% of 29,496 links on CD-ID 21708
 (scripts/routing/check_04_house_numbers.py).
 
-Not known yet: which side is left or right of the segment direction, and
-whether f0/f1 are the numbers at the start node.
+Checked against OSM addresses (scripts/routing/check_house_number_sides.py,
+03-road-network.md §6.4): f0/f1 are the numbers at the start node and f2/f3
+at the end node (97.6% of 210 sides, Bari), and with f4 = 2, (f0, f2) is the
+left side and (f1, f3) the right side of the start -> end direction (91% /
+95% of the segments).
 """
 from __future__ import annotations
 
