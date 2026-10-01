@@ -57,3 +57,11 @@ needed here; `dump-block` (added for this test) decodes one block with the indep
 - Footways, paths, cycleways and the like are counted apart: the disc is a car map.
 - Names are compared case-folded; the tolerance and cover are parameters, so the numbers depend on
   them (see `CHANGES.md` for the values used).
+
+## Pictures
+
+150 m square around the roundabout, north up. Light blue: OSM today. Grey and black: the disc's roads; black with a dot, the records of the crossing. Red (picture 2): ring records (junction type 6).
+
+| 1. Disc 2016 (original) | 2. First attempt: 8 records reused | 3. Final: the roundabout as OSM has it |
+|---|---|---|
+| ![disc 2016](images/1_disc_2016.svg) | ![first attempt](images/2_first_attempt.svg) | ![final redraw](images/3_final_redraw.svg) |
