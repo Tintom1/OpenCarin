@@ -158,5 +158,5 @@ Every block is readable except one group:
 ## Constraints / non-goals
 
 - `/TPD/*` third-party data (POI marketing, HTML) is not needed for routing.
-- CF=1 is needed only to read original discs, not to generate one (CF=0 + CF=2 suffice).
+- CF=1 is needed to read original discs. To generate a DVD it is not needed (CF=0 + CF=2 suffice; the units read plain blocks and a DVD has room). To generate a CD it is needed for size: with every block plain, `carindb` outgrows ~700 MB (D14).
 - No block checksum exists.
