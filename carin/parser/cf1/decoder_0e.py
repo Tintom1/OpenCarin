@@ -3,7 +3,7 @@ from .core import _walk
 from .constants import *
 import struct
 
-from .decoder_00 import dec_text, enc_text
+from .decoder_00 import dec_text, enc_text, text_end
 
 
 def s2_offset_bits(subrel: int) -> int:
@@ -313,10 +313,9 @@ def encode_type0E(decoded: bytes, table: dict, dbrel: int, subrel: int = 9,
         bw.put(s2_offset_bits(subrel), val1 >> 1)
         bw.put(M_lo, val2)
 
-    # name blob (dec_text): from the end of section 2 to the last non-zero byte
+    # name blob (dec_text): from the end of section 2 to the NUL closing the last name
     text_start = e2_off + e2_cnt * s2_rec
-    text_end = len(decoded.rstrip(b"\x00")) - 1
-    enc_text(bw, decoded, text_start, text_end, ptrbits)
+    enc_text(bw, decoded, text_start, text_end(decoded, text_start), ptrbits)
 
     # ── assemble raw block ────────────────────────────────────────────────────
     prolog    = bytearray(decoded[:prolog_size])

@@ -37,3 +37,17 @@ def test_text_floor_blocks_writes_below_it():
 def test_text_rejects_bytes_without_a_code():
     with pytest.raises(Cf1Error):
         enc_text(BitWriter(), b"a!b", 0, 2, 8)
+
+
+def test_text_dictionary_roundtrip_and_saves_bits():
+    blob = b"".join(n + b" road\0" for n in (b"church", b"station", b"mill", b"park", b"high")) * 3
+    ptrbits = bits_needed(len(blob) + 64)
+    plain, packed = BitWriter(), BitWriter()
+    enc_text(plain, bytearray(8) + blob, 8, 8 + len(blob) - 1, ptrbits, words=[])
+    enc_text(packed, bytearray(8) + blob, 8, 8 + len(blob) - 1, ptrbits)
+    assert len(packed.to_bytes()) < len(plain.to_bytes())
+    ctx = Cf1Context(table={}, src=packed.to_bytes() + bytes(8), dst=bytearray(len(blob) + 72))
+    ctx.ptrbits = ptrbits
+    ctx.bits_init()
+    dec_text(ctx, floor=8)
+    assert bytes(ctx.dst[8:8 + len(blob)]) == blob

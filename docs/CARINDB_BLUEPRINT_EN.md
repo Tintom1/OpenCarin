@@ -495,7 +495,7 @@ still follow.
 | Trie | Root | Leaves point to | Check (`local/tools/trie0d.py`, `trie11.py`) |
 |---|---|---|---|
 | `0x0D` city names | `0x0A` record `+0x00` (one per country) | `0x0C` city records (8 B, name offset first) | every leaf name starts with its prefix: United Kingdom 35,168, Ireland 62,964 (CD-ID 21594); England 26,692, Scotland 2,921 (CD-ID 2952) |
-| `0x11` POI names | `0x0A` section 3 (one per country and category) | `0x10` POI index records (8 B: name offset, type, locality, detail pointer) | 302 / 302 (CD-ID 21594), 187 / 187 (CD-ID 2952) |
+| `0x11` POI names | `0x0A` section 3 (one per country and category); `0x0C` sections 3 and 5 (per city, category and brand, §4.4.2) | `0x10` POI index records (8 B: name offset, type, locality, detail pointer) | 302 / 302 (CD-ID 21594), 187 / 187 (CD-ID 2952) |
 | `0x0F` road names | `0x0C` city record `+0x00` (one per city, below) | `0x0E` section 0 street records (8 B, §6.3) | 18,848 / 18,861 names under their prefix on 200 cities (CD-ID 21594; the 13 are one Irish range where `i` and `í` sort together); 30,437 / 30,437 on 300 cities (CD-ID 2952) |
 
 The `0x11` categories are the POIs you can search by name: 20 attractions (Guinness Storehouse,
@@ -503,6 +503,13 @@ Madame Tussauds), 32 museums, 35 stadiums, 37 landmarks (Big Ben, Newgrange), 38
 39 national parks, 49 a museum (CD-ID 2952 only), 52 airports (with IATA codes such as `dub`
 and `ork` as alias records, flag `0x0100`), 53 ferry terminals and the Channel Tunnel,
 58 border crossings.
+
+`0x11` is mostly one level deep: a first-letter index rather than a trie that narrows letter by
+letter. On CD-ID 2952 all 85,313 `0x11` records are leaves; on CD-ID 21594, 143 of 437,838 lead
+to a second level. A leaf's `count` records are consecutive `0x10` S0 records whose names all
+start with its letter, in name order (85,232 / 85,313 in order on CD-ID 2952; the rest differ only
+in `ü` / `ue` collation). The unit finds a POI through its letter's leaf and then by name within
+it (§4.4.2).
 
 **`0x0C` city records** (`local/tools/city0c.py FILE SECTOR`). Section 0 holds 8-byte entries in
 alphabetical order: `u16 name offset, u16 flags, u16 post-town offset (0 = none), u16 pointer
@@ -513,13 +520,12 @@ DB-REL 34 and 20 on DB-REL 22:
 +0x00 u32 BLOCK_ID of a 0x0F block \
 +0x04 u16 offset                     |  root of the city's road-name trie
 +0x06 u16 count                     /
-+0x08 u16 offset into section 3, +0x0A u16 count: the city's own 0x11 POI tries
-      (12-byte records like 0x0A section 3; categories 48, 56, 57 seen)
++0x08 u16 offset into section 3, +0x0A u16 count: the city's POI index, one 12-byte
+      range per POI category (§4.4.2)
 +0x0C u32 BLOCK_ID of a 0x00 tile, +0x10 u16 offset in it: the city centre, used when a
       city is chosen without a road
 ```
-Section 5 holds variable-length brand lists (`renault`, `bp`, `shell`, `tesco`) with `0x11`
-pointers; not decoded.
+Sections 3 and 5 are the cities' POI index by category and by brand (§4.4.2).
 
 A street can be listed under more than one city, as separate `0x0E` records reached from
 separate tries. On CD-ID 2952 a street on the border of two towns sits in a packed `0x0E` block
@@ -556,6 +562,123 @@ it doesn't take them from the list that was searched, but from another copy of t
 That could be the post town's `0x0E` list (where `C` gives the locality) or the `0x00` tile text,
 and neither was changed. The `0x0F` rule does not rebuild the `0x0D` city tries: these split some
 groups that sit in one block (open).
+
+The destination line comes from the map: re-encoding the `0x00` tiles with `encode_type00` and
+changing the street name and locality that section 2 points to (`+0` street, `+2` locality) makes
+the destination screen show the new names, with the post town's initial in front of the locality
+(`T.-CUSTOM` for a place whose `0x0C` post town is Truro). The same names show when the road is
+picked on the map. A name blob must end on the NUL that closes its last string, as every blob on
+the discs does: the unit's decode buffer is not zeroed, and without that NUL the last name ran on
+into leftover bytes (`HELLO WORLD ü $°%ú`).
+
+Once a destination with a post town is set (the `T.` in `T.-CUSTOM`), the CNI1's street
+selection lists the post town's streets (its whole `0x0E` list, e.g. Truro's 1,443 entries with
+their localities: `a30, blackwater`), not those of the city that was picked; picking the city
+again brings its own list back. This is the unit's normal behaviour (checked on an unedited
+village), so a rename meant to be found this way must also be made in the post town's list.
+
+**Moving a block (tested on a CNI1, CD-ID 2952).** A packed `0x00` tile was copied to the end of
+`carindb` (the file grew by 3 sectors; the `CDI` directory and `CDI/PD` moved up behind it, with
+the root directory, the `CDI` directory, both path tables and the PVD volume size patched), its
+old sectors were zeroed, and every pointer to it was rewritten. The unit draws, searches and
+routes the area as before, including routes that cross into the tile. So the firmware reaches
+blocks only through their `BLOCK_ID`s, never by position in the chain, and `carindb` can grow.
+A scan of every block on the disc (packed ones decoded) for that tile's `BLOCK_ID` found these
+pointer kinds and nothing else (`local/tools/refs.py`):
+
+| Holder | Field | Count for this tile |
+|---|---|---|
+| `0x0E` street directory | S2 `+16`, the street's segment run | 29 |
+| Neighbouring `0x00` tiles | slot 6 `+8`, tile-edge twin | 34 |
+| Neighbouring `0x00` tiles | slot 9, neighbour list | 5 |
+| `0x0C` city record | S1 `+0x0C`, city centre | 2 |
+| `0x10` POI details | section 4 (8 B records) `+0`, the POI's road | 3 |
+| `0x09` spatial-index cell | tile list | 1 |
+| `0x04` house numbers | header `+12` | 1 |
+| The tile itself | header `+0`; slot 10 (and slot 13) own-tile entries | 1 + 12 |
+
+`0x03` slot 8 can also point at a `0x00` tile (not for this one), and `0x10` section 1
+(20 B records) `+8` does for a few tiles. A tile's header points outwards at `+80` (its `0x04`
+block) and `+84` (its `0x03` parent); those don't change when the tile moves.
+
+#### 4.4.2 POI index of a city: `0x0C` sections 3 and 5
+
+Checked on every `0x0C` block of CD-ID 2952 (618) and CD-ID 21594 (646); tested on a CNI1 with
+CD-ID 2952 (2026-09-29, `local/tools/build_attempt25*.py`, `build_attempt26.py`). This answers
+issue #21.
+
+```
+Section 3: one 12-byte range per POI category of a city (city record S1 +0x08 / +0x0A)
+  +0x00 u32 BLOCK_ID of a 0x11 block \  the category's letter leaves (§4.4.1), pointing
+  +0x04 u16 offset                     |  into the category copy (below)
+  +0x06 u16 count                     /
+  +0x08 u16 CATEGORY   a 0x06 category code (02-geo.md §8.1)
+  +0x0A u16 BRANDS     offset in this block of the category's first section 5 record
+Section 5: one 12-byte range per brand of a category
+  +0x00 u32 BLOCK_ID of a 0x11 block \  the brand's letter leaves, pointing into the brand
+  +0x04 u16 offset                     |  copy (below)
+  +0x06 u16 count                     /
+  +0x08 u16 BRAND      offset of the brand name in this block's text (`bp`, `renault`)
+  +0x0A u16 0
+```
+
+A category's brands run from its `BRANDS` to the next section 3 record's `BRANDS`. The section 3
+records of all cities in a block follow each other, so a city's last category ends where the next
+city's first begins. `BRANDS` never decreases and the first one is section 5's start: 605 / 605
+blocks with a section 5 on CD-ID 2952 and 644 / 644 on CD-ID 21594; in the 11 blocks of CD-ID 2952
+without a section 5, every `BRANDS` holds one value (no brands). On one city of CD-ID 2952, petrol
+(12) has 13 brands (`bp` … `total`), hotels (21) have 10, and every other category none. All
+91,620 section 5 records of CD-ID 21594 point at `0x11` blocks.
+
+**Every branded POI is stored twice.** The *category copy* (reached from section 3) holds all of a
+city's POIs, grouped by category and sorted by name. The *brand copy* (from section 5) holds the
+branded ones again, grouped by category and brand. Brandless POIs are only in the category copy.
+Each copy has its own detail and road-link records, with the same POI ID, position and road. On
+CD-ID 2952, 83 of the 620 `0x10` blocks are reached from section 5; on CD-ID 21594, 522 of 4,787.
+
+**How the unit finds a POI.** Through the city, the category (or brand), the leaf of the name's
+first letter, and then the name within the leaf. Edits to real POIs on a CNI1, each on its own
+petrol station, with the Guidance button as the test:
+
+| Change | Guidance |
+|---|---|
+| Moved: the brand copy's detail X/Y and the `0x06` record | yes |
+| The brand copy's road link (detail S4) pointed at another road | yes |
+| Renamed in both copies, keeping the first letter and the name's place in the order | yes |
+| Renamed in the brand copy only, in order | yes |
+| Renamed so that the name is out of order in its leaf (one copy or both; also keeping the brand as the first word) | no |
+| Renamed in both copies to a new first letter, in order, inside the old letter's leaf | no |
+| As the last, with that leaf's letter changed in both `0x11` blocks | yes, and found by typing the name |
+
+Renaming only the category copy out of order made the POI disappear from the unit's list. The unit
+shows the brand in front of the name in its lists ("Gulf …"), and the locality (`0x10` S0 `+4`)
+after the post-town initial on the address screen ("S.-LOCALITY", as for streets, §4.4.1).
+
+**A POI index written from scratch works.** On the real map of CD-ID 2952 every real
+POI was cut off: every city's and country's POI root set to `(0, 0)` and every `0x06` cell's
+record count to 0. One city then got a new index: 16 made-up POIs in eight categories (petrol, car
+rental, parking, hotels, restaurants, museums, landmarks, parks), four made-up brands and six
+brandless POIs, on real roads of four `0x00` tiles, plain and packed (a link into a packed tile
+gives the segment's offset in the decoded tile, as the disc's own links do). Written: the city's
+section 3 and 5 ranges, its brand names (appended to the block's text), both `0x11` blocks, both
+`0x10` copies (in place of real ones, keeping `+0x20` / `+0x24`, the next and previous `0x10`
+block) and the `0x06` cell around them. On the unit every POI is listed, found by typing its name and
+routed to. That includes brandless POIs, brands in categories that have none on the disc, and a
+branded POI whose name doesn't start with its brand (like `savacentre` under `j sainsbury` on the
+disc). Only the petrol and landmark icons were drawn on the map; which categories get icons looks
+like the unit's own choice (not examined).
+
+Rules a writer must keep:
+1. In each leaf, the names are in order and all start with the leaf's letter; every first letter
+   in a category (or brand) gets its own leaf, and the leaves are in letter order (on the discs:
+   63,133 / 63,136 ranges on CD-ID 2952, 183,838 / 183,841 on CD-ID 21594; the exceptions were
+   not examined).
+2. The brand copy and section 5 follow the same rules.
+3. The `0x06` records point at the copy the disc uses: on CD-ID 2952 the brand copy for every
+   branded POI (11,643 / 11,643) and the category copy for the rest; on CD-ID 21594 the category
+   copy for all (69,147 branded records). The test above followed CD-ID 2952.
+4. Choosing a POI, unlike a street, also needs the road levels linked near the car
+   (`03-road-network.md` §6.7).
 
 ### 4.5 `CARINET` — Event Text Catalog (independent block space)
 
@@ -696,6 +819,75 @@ On DB-REL 22 (30 B records) there is no `+0x16` section 13 pointer: `+0x14` is t
 - Section 9 (`T[0x0F]` = 8 B): the neighbouring tiles.
 
 **Levels.** Every node of `0x01`, `0x02` and `0x03` lies exactly on a `0x00` node (100% on CD-ID 21594). Coarse segments pass through street junctions without stopping (32% of `0x03`, 37% of `0x02`, 46% of `0x01` segments), so each coarser level is the main-road network with minor junctions merged. **Section 8** of a coarse tile links it to the next level down (`0x01` → `0x02` → `0x03` → `0x00`; empty in `0x00`). It holds `gw × gh` `u32` `BLOCK_ID`s, one per cell of a grid over the tile, numbered column-major (`cx · gh + cy`), with the grid aspect equal to the tile aspect. A coarse node is found one level down by position: its cell gives the tile, and the node with identical coordinates is its twin. This resolved every node with a twin (CD-ID 21594: 869, 1,428 and 569 nodes; CD-ID 2952: 1,101, 964 and 668, with 55 nodes lacking a twin).
+
+**Levels on CD-ID 2952** (plain tiles, `local/tools/build_attempt21.py`):
+- A tile's header `+84` is its parent one level up: `0x00` → `0x03` → `0x02` → `0x01`.
+- `0x03` holds road classes 0–2, `0x02` classes 0–1 and `0x01` class 0 (15,000 segments sampled).
+- Coarse segment records are 24 B: the 30 B layout up to `+0x15`, then `+0x16` = 0 (no name).
+  Coarse tiles store their sections in the order 0–7, 9, 8, 10–12 (4,424 / 4,424); their section 2
+  is the null name record alone.
+- Every plain road tile ends section 4 with a **sentinel record**: zero except `+0x04` (the end
+  of section 7) and `+0x12` / `+0x14` (and `+0x1C` in `0x00`), which hold the end of the sections
+  they point into (5,934 / 5,934 tiles).
+- A node record (sections 5 and 6) is `u, v`, `+4` the first segment at the node, `+6` flags.
+  **Flag bits 15–14 give the highest level the node reaches**: 3 street level only, 2 up to
+  `0x03`, 1 up to `0x02`, 0 up to `0x01` (31,700 / 32,400 nodes sampled; the rest have their twin
+  across a tile edge); edge nodes have `0x2000` set as well. A coarse node carries exactly its
+  street twin's flags (9,935 / 10,015). Bit 12 is set. Bits 8–11 follow the node's degree: 1 at
+  one segment, 5 at two, 0 at three or more (1,957 / 2,001 nodes in 300 tiles); 2 also occurs at
+  junctions involving slip roads and 4 at some street-level-only nodes with two segments (meaning
+  open). The low byte is 0, or 1 / 2 on the two nodes of a crossing (below).
+
+**How the coarse levels follow from the street level** (CD-ID 2952, 60 random tiles per level in
+Great Britain; `local/tools/coarse_study.py`). A coarse tile's street tiles are the tiles whose
+header `+84` points at it (read down level by level) together with its section 8 grid; some `0x03`
+grids are empty.
+- A level keeps the street roads of its classes (≤ 2, ≤ 1, 0). About 4% of the runs between
+  junctions are left out: 211 / 5,107 on `0x03`, 225 / 5,628 on `0x02`, 57 / 1,671 on `0x01`.
+  Almost all are one-way, none are dead ends, and most have no same-direction alternative through
+  the kept roads; which ones are left out is not understood.
+- Each coarse segment is the shortest street path of its own class between its two nodes. Its
+  length is the sum of the street lengths (within 1 m: 6,532 / 6,554, 7,119 / 7,148,
+  2,436 / 2,440); class, speed and form are the same all along it (6,553 / 6,554 and similar);
+  `+0x0E` / `+0x0F` are the bearings of the first and last street segment. The shape keeps a
+  subset of the street shape's points (median ½ on `0x03` and `0x02`, ⅓ on `0x01`); how points are
+  chosen is not known.
+- **Coarse nodes**, counted on the kept roads: a node where three or more kept roads meet is always
+  a coarse node (3,188 / 3,188 on `0x03`). Where two meet, it is a coarse node exactly when class,
+  speed, form of way, built-up (`+0x0A` bit 7) or the one-way direction changes there; a change of
+  name or junction type (`+0x11`) doesn't count. Two kept roads without such a change: the coarse
+  segment passes through 12,817 times (13 exceptions) on `0x03`, 17,201 (11) on `0x02` and
+  10,880 (4) on `0x01`. Street tile edges are passed through; coarse tile edges end a segment.
+- **Crossings without a junction** (bridges) are two nodes at the same coordinates, with node flag
+  low byte 1 and 2 (2,638 and 2,640 in 3,000 tiles). Each has its own two segments and its own
+  next-segment ring, so the roads don't connect. A graph keyed on coordinates alone would join
+  them; key it on coordinates and that byte.
+
+**Writing road tiles (tested on a CNI1, CD-ID 2952, 2026-09-28/29).** Plain tiles written from our
+own records, on burned discs:
+1. The map is drawn from the node `(u, v)` and section 7 through `+0x04` alone. Moving nodes and
+   shape points, with the same records, counts and topology, redraws the roads (text in road
+   shapes worked), joined to the neighbouring tile at the edge nodes.
+2. Two ordering rules are **required**; breaking them crashed the unit whenever the map loaded. A
+   segment's start node is the end with the lower `(x, y)` (43,757 / 43,809 segments on the disc;
+   reverse the shape and swap the one-way bits to match), and the section 5 nodes are
+   `(x, y)`-sorted within each level of section 3 (2,800 / 2,800 groups). A node's level is the
+   lowest class among its segments (100%), and section 2 is sorted by name.
+3. A tile without edge nodes (section 6 empty) works, and so does a disc whose road tiles are all
+   emptied (sections 0, 1, 8, 9 and the strings kept; section 2 the null record; the rest empty).
+4. With our own records throughout (next-segment rings in clockwise bearing order, levels, flags,
+   lengths, bearings) the unit routes along our roads and gives turn-by-turn guidance (arrows,
+   speech, distance), also in a country of empty tiles. Guidance starts once the car is on a road
+   line of the map; before that the unit only shows a direction arrow.
+5. **Choosing a POI needs the level links near the car**; choosing a street does not. On a disc
+   where the four `0x03` nodes whose section 8 cell is the car's `0x00` tile had lost their twins
+   (the tile's nodes were moved), no POI showed the Guidance button; giving those four nodes back
+   their positions fixed it. Our own `0x03`, `0x02` and `0x01` tiles, written from a street tile
+   (its segments unmerged, every coarse node on a street node, flags as above), draw when zoomed
+   out. Whether they carry POI routing was not tested apart from other changes.
+6. On a map of empty tiles, the town, sea and road-number labels that remain come from the name
+   blobs of the area and line layers `0x14`–`0x16` (`02-geo.md` §8.4); emptying the blobs removes
+   them.
 
 **Section 10 (`T[0x14]` = 8 B): forbidden turns.** A segment's entries run from its `+0x12` to the next segment's. Each entry is `u32 BLOCK_ID` (own tile), `u16` offset of a target segment and `u16` flag:
 - flag 0: the target meets the owner at its start node (548 / 562);
@@ -1040,20 +1232,23 @@ def to_carin(lon, lat):
 
 ## 8. Georeferenced Record Formats
 
-### 8.1 Type `0x06` — POI Record, **28 bytes** (not 24)
+### 8.1 Type `0x06` — POI Record, **`T[0x32]` bytes** (28 on DB-REL 34, 20 on DB-REL 22)
 
 ```
  off  size  field
- 0x00   4   BLOCK_ID of the 0x10 block (street/name parcel) containing the POI
- 0x04   2   UNKNOWN (multiple of 8)
+ 0x00   4   BLOCK_ID of the 0x10 block (POI parcel) holding the POI
+ 0x04   2   byte offset of the POI's S0 index record in that block
  0x06   2   LOCAL_X    position in tile, step 64        <- sorted ascending
  0x08   2   LOCAL_Y    position in tile, step 64
- 0x0A   2   CATEGORY   (0x0016, 0x0017, 0x001F, 0x0023, 0x0030, …)
- 0x0C   4   0x00000000
- 0x10   4   BRAND_REF  global reference to chain (recurring across blocks)
- 0x14   4   0x00000000
- 0x18   4   0x00000000
+ 0x0A   2   CATEGORY   (12 petrol, 21 hotels, 37 landmarks, 48 towns, …)
+ 0x0C   2   BRAND      offset of the POI's brand in this block's name blob, 0 = no brand
+ 0x0E   2   0, or 1 on a few ports and airports
+ 0x10   4   POI_ID     the 0x10 detail record's +0x1C; read before as a "brand reference"
+ 0x14   8   0          DB-REL 34 only
 ```
+
+Checked on every record of CD-IDs 2952 and 21594; the `0x10` parcel, the two copies of a branded
+POI and the tests on a CNI1 are in `carindb/02-geo.md` §8.1 and §8.1.1 and §4.4.2 above.
 
 **Exact local scale = 64:**
 
@@ -1071,9 +1266,9 @@ Verified across 2,395 blocks: for each observed tile size,
 | expected `side/64 − 1` | 1535 | 3071 | 6143 | 12287 | 24575 | 49151 |
 
 POI resolution: 64 units = 1.15e−5° ≈ **1.2 m**.
-The name blob (Latin-1, `\0`-terminated) follows the records; it contains **173
-distinct names across the entire DB**, all brands/chains (banks, fuels, hotels) —
-no toponyms, no airports.
+The name blob (Latin-1, `\0`-terminated) follows the records: the brands used in the
+block (`BRAND`), **173 distinct names across the entire DB**, all chains (banks, fuels,
+hotels).
 
 Extracted from the image: **2,048,403 POIs**.
 

@@ -4,7 +4,7 @@
 [![Rust 2024](https://img.shields.io/badge/rust-2024-orange.svg)](carindb-rs/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Format: CARINdb](https://img.shields.io/badge/format-CARiN%20%2F%20CarinDB-orange.svg)](#)
-[![Tests: 37 passing](https://img.shields.io/badge/tests-37%20passing-brightgreen.svg)](tests/)
+[![Tests: 81 passing](https://img.shields.io/badge/tests-81%20passing-brightgreen.svg)](tests/)
 [![Buy Me A Coffee](https://img.shields.io/badge/Donate-Buy%20Me%20A%20Coffee-yellow.svg)](https://buymeacoffee.com/fdemusso)
 
 **OpenCarin** is an open-source reverse-engineering and map compilation toolkit for the proprietary **Philips/VDO CARiN** navigation database format (`CARINdb`, `DB_0`, `DB_1`, `CARINET`).
@@ -51,8 +51,11 @@ We have achieved major breakthroughs across the entire format specification. Eve
   * Block `0x04` stores 10-byte records defining left/right house number ranges per S4 road segment (implemented in [`carin/parser/house_numbers.py`](carin/parser/house_numbers.py)).
   * `0x0E` S2 holds street-level envelope ranges, cross-checked with a **98.9% match against OpenStreetMap addresses**.
 * ✅ **Administrative Search Tries & Physical Hardware Verification (`0x0A`, `0x0C`, `0x0D`, `0x0F`, `0x11`)**:
-  * Country table (`0x0A`), city records (`0x0C` with exact city-center coordinates), and prefix radix tries for cities (`0x0D`), roads (`0x0F`), and POIs (`0x11`).
+  * Country table (`0x0A`), city records (`0x0C` with exact city-center coordinates), and prefix radix tries for cities (`0x0D`) and roads (`0x0F`). POIs (`0x11`) use a first-letter index per city, category and brand (`0x0C` sections 3 and 5).
   * **Live vehicle verification**: Modified street names and a custom created city were injected into disc images and successfully booted and recognized on a physical Renault Carminat CNI1 nav computer!
+* ✅ **Our Own Roads and POIs Run on a CNI1** (CD-ID 2952):
+  * Plain `0x00` road tiles written from our own records draw, route and give turn-by-turn guidance, also on a disc whose other road tiles are all empty. Their coarse `0x03`/`0x02`/`0x01` parents, written by us, draw when zoomed out.
+  * A city's POI index written from scratch (`0x06`, `0x10`, `0x11`, `0x0C` sections 3 and 5): made-up POIs, with and without brands, are listed, found by name and routed to. See [`01-architecture.md`](docs/carindb/01-architecture.md) §4.4.2 and [`03-road-network.md`](docs/carindb/03-road-network.md) §6.7.
 * ✅ **TMC Traffic Message Channel Indices Decoded (`0x17`–`0x1B`)**:
   * TMC location tables (`0x17`), table index (`0x18`), TMC position records (`0x19`), and spherical coordinate spatial index (`0x1B` → `0x1A`).
 * ✅ **High-Performance Rust Toolchain (`carindb-rs`)**:
@@ -67,16 +70,16 @@ With the reading and decoding of the binary format solved, our focus is shifted 
 ### 1. RoadRunner Firmware Route Planner & Cost Functions 🔴 Critical
 * Reverse-engineer the routing engine in RoadRunner MIPS firmware (`bsw2` / `sub_01fd80`, `sub_04e02c`).
 * Decode speed code lookup tables (`+0x0A & 0x1F`), turn restriction weights (Section 10), and routing cost traversal heuristics.
-* Trace inter-tile crossing logic (Section 6 twins) and hierarchical layer transitions (Section 8).
+* Trace inter-tile crossing logic (Section 6 twins) and hierarchical layer transitions (Section 8) in the firmware. On the data side the levels are known: which street roads and nodes reach `0x03`/`0x02`/`0x01` and how coarse segments are built ([`03-road-network.md`](docs/carindb/03-road-network.md) §6.7); still open are the ~4% of runs the disc leaves out and how coarse shapes are simplified.
 
 ### 2. Routable Export Pipeline (GeoPackage / OSRM / Valhalla) 🟠 High
 * Build an export pipeline converting decoded `0x00`–`0x03` road segments, nodes, geometry, one-way restrictions, turn penalties, and street names into standard GIS / routing formats (GeoPackage, GeoJSON, OSRM/Valhalla graph).
 * Validate routing accuracy by computing test routes and comparing against OSM/OSRM.
 
 ### 3. OpenStreetMap to CARiN Serializer & ISO Compiler 🟡 Ongoing
-* **Block Serializers**: Generate uncompressed (CF=0) `0x00`–`0x03` road network tiles from OSM ways and nodes (CF=1 is not required for writing custom discs).
+* **Block Serializers**: Generate `0x00`–`0x03` road network tiles from OSM ways and nodes. The units read plain (CF=0) tiles, but a CD needs CF=1 packing to stay under ~700 MB (all-plain `carindb` would be ~509 MB for CD-ID 2952 and ~640 MB for CD-ID 21594, against 322 and 437 MB packed); `encode_type00` and `encode_type0E` exist. Hand-built plain tiles, their coarse parents and a city's POI index already run on a CNI1; the rules they need are in [`03-road-network.md`](docs/carindb/03-road-network.md) §6.7 and [`01-architecture.md`](docs/carindb/01-architecture.md) §4.4.2.
 * **Spatial Index Builder**: Generate quadtree directory `0x07` → grid `0x08` → cell matrix `0x09`.
-* **Administrative Hierarchy & Tries**: Compile country table `0x0A`, city directory `0x0C`, and search tries `0x0D` / `0x0F` / `0x11`.
+* **Administrative Hierarchy & Tries**: Compile country table `0x0A`, city directory `0x0C`, and search tries `0x0D` / `0x0F` / `0x11`. The `0x0F` build rule and the `0x11` POI index are known and tested on a CNI1; `0x0D`'s split rule is still open.
 * **Disc Masterer**: Package 512-byte sector-aligned `DB_0` / `DB_1` files and generate bootable dual-layer ISO 9660 filesystem images.
 
 ### 4. Residual Decoders & Legacy Formats 🟢 Minor

@@ -430,6 +430,75 @@ On DB-REL 22 (30 B records) there is no `+0x16` section 13 pointer: `+0x14` is t
 
 **Levels.** Every node of `0x01`, `0x02` and `0x03` lies exactly on a `0x00` node (100% on CD-ID 21594). Coarse segments pass through street junctions without stopping (32% of `0x03`, 37% of `0x02`, 46% of `0x01` segments), so each coarser level is the main-road network with minor junctions merged. **Section 8** of a coarse tile links it to the next level down (`0x01` → `0x02` → `0x03` → `0x00`; empty in `0x00`). It holds `gw × gh` `u32` `BLOCK_ID`s, one per cell of a grid over the tile, numbered column-major (`cx · gh + cy`), with the grid aspect equal to the tile aspect. A coarse node is found one level down by position: its cell gives the tile, and the node with identical coordinates is its twin. This resolved every node with a twin (CD-ID 21594: 869, 1,428 and 569 nodes; CD-ID 2952: 1,101, 964 and 668, with 55 nodes lacking a twin).
 
+**Levels on CD-ID 2952** (plain tiles, `local/tools/build_attempt21.py`):
+- A tile's header `+84` is its parent one level up: `0x00` → `0x03` → `0x02` → `0x01`.
+- `0x03` holds road classes 0–2, `0x02` classes 0–1 and `0x01` class 0 (15,000 segments sampled).
+- Coarse segment records are 24 B: the 30 B layout up to `+0x15`, then `+0x16` = 0 (no name).
+  Coarse tiles store their sections in the order 0–7, 9, 8, 10–12 (4,424 / 4,424); their section 2
+  is the null name record alone.
+- Every plain road tile ends section 4 with a **sentinel record**: zero except `+0x04` (the end
+  of section 7) and `+0x12` / `+0x14` (and `+0x1C` in `0x00`), which hold the end of the sections
+  they point into (5,934 / 5,934 tiles).
+- A node record (sections 5 and 6) is `u, v`, `+4` the first segment at the node, `+6` flags.
+  **Flag bits 15–14 give the highest level the node reaches**: 3 street level only, 2 up to
+  `0x03`, 1 up to `0x02`, 0 up to `0x01` (31,700 / 32,400 nodes sampled; the rest have their twin
+  across a tile edge); edge nodes have `0x2000` set as well. A coarse node carries exactly its
+  street twin's flags (9,935 / 10,015). Bit 12 is set. Bits 8–11 follow the node's degree: 1 at
+  one segment, 5 at two, 0 at three or more (1,957 / 2,001 nodes in 300 tiles); 2 also occurs at
+  junctions involving slip roads and 4 at some street-level-only nodes with two segments (meaning
+  open). The low byte is 0, or 1 / 2 on the two nodes of a crossing (below).
+
+**How the coarse levels follow from the street level** (CD-ID 2952, 60 random tiles per level in
+Great Britain; `local/tools/coarse_study.py`). A coarse tile's street tiles are the tiles whose
+header `+84` points at it (read down level by level) together with its section 8 grid; some `0x03`
+grids are empty.
+- A level keeps the street roads of its classes (≤ 2, ≤ 1, 0). About 4% of the runs between
+  junctions are left out: 211 / 5,107 on `0x03`, 225 / 5,628 on `0x02`, 57 / 1,671 on `0x01`.
+  Almost all are one-way, none are dead ends, and most have no same-direction alternative through
+  the kept roads; which ones are left out is not understood.
+- Each coarse segment is the shortest street path of its own class between its two nodes. Its
+  length is the sum of the street lengths (within 1 m: 6,532 / 6,554, 7,119 / 7,148,
+  2,436 / 2,440); class, speed and form are the same all along it (6,553 / 6,554 and similar);
+  `+0x0E` / `+0x0F` are the bearings of the first and last street segment. The shape keeps a
+  subset of the street shape's points (median ½ on `0x03` and `0x02`, ⅓ on `0x01`); how points are
+  chosen is not known.
+- **Coarse nodes**, counted on the kept roads: a node where three or more kept roads meet is always
+  a coarse node (3,188 / 3,188 on `0x03`). Where two meet, it is a coarse node exactly when class,
+  speed, form of way, built-up (`+0x0A` bit 7) or the one-way direction changes there; a change of
+  name or junction type (`+0x11`) doesn't count. Two kept roads without such a change: the coarse
+  segment passes through 12,817 times (13 exceptions) on `0x03`, 17,201 (11) on `0x02` and
+  10,880 (4) on `0x01`. Street tile edges are passed through; coarse tile edges end a segment.
+- **Crossings without a junction** (bridges) are two nodes at the same coordinates, with node flag
+  low byte 1 and 2 (2,638 and 2,640 in 3,000 tiles). Each has its own two segments and its own
+  next-segment ring, so the roads don't connect. A graph keyed on coordinates alone would join
+  them; key it on coordinates and that byte.
+
+**Writing road tiles (tested on a CNI1, CD-ID 2952, 2026-09-28/29).** Plain tiles written from our
+own records, on burned discs:
+1. The map is drawn from the node `(u, v)` and section 7 through `+0x04` alone. Moving nodes and
+   shape points, with the same records, counts and topology, redraws the roads (text in road
+   shapes worked), joined to the neighbouring tile at the edge nodes.
+2. Two ordering rules are **required**; breaking them crashed the unit whenever the map loaded. A
+   segment's start node is the end with the lower `(x, y)` (43,757 / 43,809 segments on the disc;
+   reverse the shape and swap the one-way bits to match), and the section 5 nodes are
+   `(x, y)`-sorted within each level of section 3 (2,800 / 2,800 groups). A node's level is the
+   lowest class among its segments (100%), and section 2 is sorted by name.
+3. A tile without edge nodes (section 6 empty) works, and so does a disc whose road tiles are all
+   emptied (sections 0, 1, 8, 9 and the strings kept; section 2 the null record; the rest empty).
+4. With our own records throughout (next-segment rings in clockwise bearing order, levels, flags,
+   lengths, bearings) the unit routes along our roads and gives turn-by-turn guidance (arrows,
+   speech, distance), also in a country of empty tiles. Guidance starts once the car is on a road
+   line of the map; before that the unit only shows a direction arrow.
+5. **Choosing a POI needs the level links near the car**; choosing a street does not. On a disc
+   where the four `0x03` nodes whose section 8 cell is the car's `0x00` tile had lost their twins
+   (the tile's nodes were moved), no POI showed the Guidance button; giving those four nodes back
+   their positions fixed it. Our own `0x03`, `0x02` and `0x01` tiles, written from a street tile
+   (its segments unmerged, every coarse node on a street node, flags as above), draw when zoomed
+   out. Whether they carry POI routing was not tested apart from other changes.
+6. On a map of empty tiles, the town, sea and road-number labels that remain come from the name
+   blobs of the area and line layers `0x14`–`0x16` (`02-geo.md` §8.4); emptying the blobs removes
+   them.
+
 **Section 10 (`T[0x14]` = 8 B): forbidden turns.** A segment's entries run from its `+0x12` to the next segment's. Each entry is `u32 BLOCK_ID` (own tile), `u16` offset of a target segment and `u16` flag:
 - flag 0: the target meets the owner at its start node (548 / 562);
 - flag 1: at its end node (514 / 542);
