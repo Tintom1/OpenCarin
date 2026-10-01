@@ -18,7 +18,8 @@ direction runs the other way is stored reversed (shape reversed, one-way bits sw
 Ring segments get junction type 6, no street name and the shape points of the ring between their
 nodes. Lengths and bearings of the eight records are recomputed, the node cycles (clockwise by
 bearing, from the smallest) are rebuilt for the seven nodes, and the two forbidden turns (S10)
-that would now close a ring exit are neutralised.
+that would now close a ring exit are aimed at the segment itself. (Superseded: an S10 entry
+whose target is its owner is a U-turn ban, so this is not a neutral edit; see CHANGES.md.)
 
     uv run python examples/04_update_modugno_roundabout/04_patch_tile.py [--write]
 
@@ -255,7 +256,9 @@ def patch(t: Tile) -> dict:
         t.d[t.r(i) + 0x0F] = bearing(p[-1], p[-2])
     for n in node.values():
         write_cycle(t, n)
-    # forbidden turns (S10) that would close a ring exit: aim them at the segment itself
+    # forbidden turns (S10) that would close a ring exit: aim them at the segment itself.
+    # Not neutral: an entry targeting its own owner is a U-turn ban (PR #31). Kept only because this
+    # first attempt is superseded by 05_redraw_roundabout.py, which drops the entries instead.
     p10 = [t.u16(t.r(i) + 0x12) for i in range(t.n4)] + [t.s10 + t.n10 * t.layout[T_REC_S10]]
     neut = []
     for src, tgt in ((17, 38), (43, 38)):
@@ -263,7 +266,7 @@ def patch(t: Tile) -> dict:
             if struct.unpack_from(">IH", t.d, x) == (TILE, t.r(tgt)):
                 struct.pack_into(">H", t.d, x + 4, t.r(src))
                 neut.append((src, tgt, x))
-    log(f"S10 entries neutralised: {neut}")
+    log(f"S10 entries aimed at their owner (a U-turn ban, not a neutral edit): {neut}")
     return {"ring": ring}
 
 

@@ -70,8 +70,12 @@ script's docstring). 93 decoded bytes change:
   clockwise by bearing, starting from the smallest. The rule reproduces all 294 cycles of the original
   tile before it is used.
 - **Forbidden turns (S10).** Two entries would now forbid a ring exit (17 -> 38 and 43 -> 38, now both
-  at Rne): their target is set to the owning segment itself. (A U-turn onto itself; the effect on the
-  unit is not known.) Entry 41 -> 18 at B is unchanged and still valid.
+  at Rne): their target was set to the owning segment itself. **That is not neutral**: PR #31 shows that an
+  entry whose target is the owner segment is a ban on turning back into it (U-turn ban; flag 0 at its start
+  node, flag 1 at its end node), and the same pattern holds on the DVD (600 street tiles of 21708: 524 / 525
+  such entries with flags 0 / 1). On the one-way ring records it changes nothing in practice, but it is a
+  U-turn ban we added. The final redraw (below) does not do this: it drops the three entries that only existed
+  in the old crossing. Entry 41 -> 18 at B was unchanged and still valid.
 - **Not touched, on purpose.** Street names (S2) and house numbers (`0x04`): the ring records had none, and
   41 keeps its number 108. Class 2 roads in the coarse tiles `0x03`/`0x02`/`0x01` (they still hold the
   old crossing). Node flags. Speed byte. The other 9 OSM roundabout ways of the area.
