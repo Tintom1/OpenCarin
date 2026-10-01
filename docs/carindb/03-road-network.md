@@ -316,9 +316,23 @@ Checked on CD-ID 21708 (all 80,114 `CF=2` and 711 `CF=0` blocks; `scripts/routin
 | `0x0E` S2 even/odd ranges (§6.3.1) = envelope of the `0x04` ranges of the linked SECTION_4 run | 29,140 / 29,496 links (98.8%, 60 `0x0E` blocks); a scheme-1 side contributes both parities of its interval. The rest differ at one end of a mixed-scheme run |
 
 So `0x04` is the fine-grained data (numbers at each end of each side of each segment) and `0x0E`
-S2 is a per-link summary of it, used to pick the street run from the address search. Not
-checked: which side is left or right of the segment direction, and whether `f0`/`f1` belong to
-the start node and `f2`/`f3` to the end node.
+S2 is a per-link summary of it, used to pick the street run from the address search.
+
+**Side and end (2026-10-01, `scripts/routing/check_house_number_sides.py`, DVD 21708 against OSM
+addresses, Bari and Modugno).** Each OSM `addr:housenumber` with `addr:street` was given to the
+nearest same-named segment (at most 25 m), placed on its polyline (`t` from the start node, left
+or right of the start → end direction of the S4 record's polyline), and compared with the
+stored numbers:
+
+| Question | Result (Bari bbox 16.74–16.95 E, 40.98–41.20 N; 2,589 addresses on 53 `0x04` blocks) |
+|---|---|
+| `f0`/`f1` are the numbers at the **start** node and `f2`/`f3` at the **end** node | 205 / 210 sides (97.6%): the fitted slope of the OSM number against `t` has the sign of `f2 − f0` (`f3 − f1`). Modugno alone: 15 / 16 |
+| `(f0, f2)` is the **left** side and `(f1, f3)` the **right** side of the start → end direction (scheme `f4` = 2) | side A on the left in 311 of 341 segments (91%), side B on the right in 298 of 315 (95%), counted per segment by majority of its addresses; Modugno alone: 22 / 27 and 16 / 18 |
+
+The exceptions are not tied to the end test: of the segments testable on both, those with side A
+on the right (5) all have `f2` at the end, and the two with `f2` at the start have A on the left.
+Not examined: why about 9% of the segments disagree (OSM errors, one-way streets or a rule in
+the record), the mixed scheme (`f4` = 1), and other countries (Italy, DB-REL 34 only).
 
 **CC-93 firmware (hint, not the DVD reader).** `rpmod` sets the record size with
 `move.w #$8, -$7e7a(a6)` (factory-default subroutine `0x01af8a`, line 31577), i.e. 8-byte
