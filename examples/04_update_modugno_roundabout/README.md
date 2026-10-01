@@ -7,7 +7,7 @@ patch a **copy** of the disc.
 
 Nothing here touches the original disc: all work is on `dataset/NAV_DB_21708_copy.ISO`, a
 copy-on-write clone (`cp -c`, instant, no extra disk space). `dataset/` is git-ignored and holds
-the copy and every intermediate table. Every change we make is logged in [`CHANGES.md`](CHANGES.md).
+the copy and every intermediate table. Every change we make is logged in [`CHANGES.md`](CHANGES.md); what is left to do is in [`PLAN.md`](PLAN.md).
 
 ## Steps
 

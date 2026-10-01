@@ -90,6 +90,8 @@ script's docstring). 93 decoded bytes change:
 
 ## Open
 
+A self-contained plan for an agent that continues this work is in [`PLAN.md`](PLAN.md).
+
 - **Coarse levels.** `0x03`, `0x02`, `0x01` tiles that hold these class 2 roads still have the old crossing
   and its nodes (every node of a coarse tile lies on a `0x00` node). A coarse segment's geometry is not
   updated; whether the unit needs them consistent for routing or only for the zoomed-out map is not known.
