@@ -9,6 +9,7 @@ Tiles are sampled evenly over the size distribution of the disc (sizes in 512-by
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 import zlib
 from collections import Counter
@@ -51,7 +52,8 @@ def main() -> None:
     pick += [coarse[int(i * (len(coarse) - 1) / max(1, args.coarse - 1))] for i in range(args.coarse)]
     pick += [(int(s, 16), 0) for s in args.sector]
 
-    errors = Counter()
+    errors, exceptions = Counter(), Counter()
+    tiles_with_exceptions = 0
     ok = 0
     for sector, length in pick:
         blk = vol.block(sector)
@@ -64,20 +66,29 @@ def main() -> None:
             continue
         out = t.build()
         row = [f"{sector:#x}", f"{blk.length:3d} sec", f"{len(t.segs):4d} seg"]
+        tiles_with_exceptions += bool(t.check())
         if out != d:
             print(*row, "NULL RELAYOUT DIFFERS", sum(a != b for a, b in zip(out, d)), "bytes")
             errors["null"] += 1
             continue
         g0 = t.graph()
         broken = t.check()
-        if broken:
-            errors["rules"] += 1
-            print(*row, "RULES BROKEN on the untouched tile:", len(broken), broken[:3])
+        w, h = t.frame.width >> 6, t.frame.height >> 6
+        for msg in broken:                                         # observations on untouched tiles, not failures
+            m = re.match(r"node \((\d+), (\d+)\)", msg)
+            if m and (int(m[1]) in (0, w) or int(m[2]) in (0, h)):
+                exceptions["node cycle at a tile-edge node"] += 1
+            elif m:
+                exceptions["node cycle elsewhere"] += 1
+            elif "no shared node" in msg:
+                exceptions["S10 entry whose target shares no node"] += 1
+            else:
+                exceptions[msg.split(":")[0][:40]] += 1
         n = Tile00.parse(d, vol.layout)
         n.normalize()
-        if n.build() != d:
+        if n.build() != d and not broken:
             errors["normalize"] += 1
-            print(*row, "normalize() does not reproduce the tile")
+            print(*row, "normalize() does not reproduce a tile that follows the rules")
         for label, secs in (("S3", (3,)), ("S4", (4,)), ("S7", (7,)), ("all", (3, 4, 7))):
             grown = d
             for sec in secs:
@@ -101,7 +112,8 @@ def main() -> None:
         ok += 1
         print(*row, "null relayout identical; " + ("rules hold; " if not broken else "") +
               "4 forced shifts re-encode and re-read")
-    print(f"\n{ok} / {len(pick)} tiles clean; errors: {dict(errors) or 'none'}")
+    print(f"\n{ok} / {len(pick)} tiles: null relayout identical, forced shifts re-encode; errors: {dict(errors) or 'none'}")
+    print(f"rule exceptions on untouched tiles ({tiles_with_exceptions} tiles): {dict(exceptions) or 'none'}")
     sys.exit(1 if errors else 0)
 
 

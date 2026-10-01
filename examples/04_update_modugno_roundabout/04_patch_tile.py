@@ -1,4 +1,4 @@
-"""Step 4: replace the old crossing by the OSM roundabout in tile 0x4c184f18 of the disc copy.
+"""Step 4 (first attempt, superseded by steps 5 to 7): replace the old crossing by a simplified OSM roundabout in place.
 
 The edit keeps every section size, so no offset moves and nothing that points into the tile
 (`0x0E` runs, `0x04`, `0x0C`, the spatial index) changes. The eight records of the old crossing are

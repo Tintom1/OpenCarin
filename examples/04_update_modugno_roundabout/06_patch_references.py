@@ -34,6 +34,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from carin.parser import refs
 from carin.parser.cf1.tile00 import Tile00
+from carin.parser.house_numbers import segment_house_numbers
 from carin.parser.refs import OffsetMap
 from carin.parser.volume_edit import FitError, pack, reopen, write_block
 from common import DATA, ISO_COPY
@@ -103,13 +104,18 @@ def main() -> None:
     out[own_sector] = (new_tile, blk, "the tile")
 
     stats = Counter()
+    sec04 = next(sec for (sec, ty) in hits if ty == 0x04)                 # house numbers first: the 0x0E ranges follow them
+    b04 = vol.block(sec04)
+    p04, notes04 = refs.patch_04(b04.payload, omap)
+    houses = (segment_house_numbers(b04.payload), segment_house_numbers(p04))
     for (sector, ty), offs in sorted(hits.items()):
         if sector == own_sector:
             continue
         b = vol.block(sector)
         if ty == 0x0E:
-            data, notes = refs.patch_0e(b.payload, table, TILE, omap)
-            stats["0x0E runs"] += len(notes)
+            data, notes = refs.patch_0e(b.payload, table, TILE, omap, houses)
+            stats["0x0E runs"] += sum(1 for n in notes if "house numbers" not in n)
+            stats["0x0E house-number ranges"] += sum(1 for n in notes if "house numbers" in n)
         elif ty == 0x10:
             data, notes = refs.patch_10(b.payload, table, TILE, omap)
             stats["0x10 entries"] += len(notes)
@@ -117,7 +123,7 @@ def main() -> None:
             data, notes = refs.patch_17(b.payload, TILE, omap)
             stats["0x17 offsets"] += len(notes)
         elif ty == 0x04:
-            data, notes = refs.patch_04(b.payload, omap)
+            data, notes = p04, notes04
             stats["0x04 records"] += 1
         elif ty == 0x00:
             continue                                           # neighbours: handled by twins()
@@ -153,6 +159,8 @@ def main() -> None:
         (f"; DIFFER: {bad}" if bad else ""))
     for sector, (_p, _b, what) in sorted(out.items())[:6]:
         log(f"  {sector:#x}: {what}")
+    json.dump([[sector, b.length, b.type, f"{b.comp}"] for sector, (_p, b, _w) in sorted(out.items())],
+              open(DATA / "patched_blocks.json", "w"))
     (DATA / "patch_references.log").write_text("\n".join(REPORT) + "\n")
     sys.exit(1 if bad else 0)
 

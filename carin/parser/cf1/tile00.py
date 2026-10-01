@@ -331,6 +331,8 @@ class Tile00:
         size = (-(-total // SECTOR) + self.extra_sectors) * SECTOR
         out = bytearray(size)
         out[:len(self.prolog)] = self.prolog
+        if self.coarse and self.prolog[6] == 2:                    # zlib block: header +7 is the decoded size in sectors
+            out[7] = size // SECTOR
         base = T[T_DESC_BASE]
         for s in range(15):
             struct.pack_into(">HH", out, base + 4 * s, 0 if (s in self.zero_empty and not count[s]) else start[s], count[s])

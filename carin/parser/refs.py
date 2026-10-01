@@ -40,6 +40,7 @@ class OffsetMap:
         seg, _n5, n6 = tile.offsets()
         _, start, _ = tile._layout()
         m = cls(seg_base=start[4], seg_order=[seg[id(s)] for s in tile.segs], seg_new={}, seg_name={})
+        m._keep = list(tile.segs) + list(tile.nodes6)       # keep the objects alive: ids are only unique while they live
         m._objs = {id(s): seg[id(s)] for s in tile.segs}
         m._n6 = {id(n): n6[id(n)] for n in tile.nodes6}
         for s in tile.segs:
@@ -111,8 +112,14 @@ class OffsetMap:
 # ---------------------------------------------------------------------------------------------------
 # patchers: decoded payload in, decoded payload out, plus a log of what changed
 
-def patch_0e(payload: bytes, table: dict, tile_id: int, m: OffsetMap) -> tuple[bytes, list[str]]:
-    """Rewrite the S4 offset / count of every S2 link of a 0x0E block that points at `tile_id`."""
+def patch_0e(payload: bytes, table: dict, tile_id: int, m: OffsetMap,
+             houses: Optional[tuple[list, list]] = None) -> tuple[bytes, list[str]]:
+    """Rewrite the S4 offset / count of every S2 link of a 0x0E block that points at `tile_id`.
+
+    `houses` = (old, new) `segment_house_numbers` lists of the tile's 0x04 block. A link's house-number
+    ranges (+8..+14) are the envelope of its run's 0x04 records (docs 6.4); where they were before the edit
+    and the run changed, they are set to the envelope of the new run."""
+    from .house_numbers import run_envelope
     from .cf1.constants import T_DESC_BASE, T_REC_S2_0E
     out, notes = bytearray(payload), []
     base, rec = table[T_DESC_BASE], table[T_REC_S2_0E]
@@ -128,7 +135,25 @@ def patch_0e(payload: bytes, table: dict, tile_id: int, m: OffsetMap) -> tuple[b
         if new != (off, cnt):
             struct.pack_into(">HH", out, b + 20, *new)
             notes.append(f"S2[{i}] ({off},{cnt}) -> {new}")
+        if houses is not None:
+            old_i, new_i = m.index(off), (new[0] - m.new_seg_base) // S4_REC
+            stored = struct.unpack_from(">4H", payload, b + 8)
+            was = (run_envelope(houses[0], old_i, cnt)) == _ranges(stored)
+            now = run_envelope(houses[1], new_i, new[1])
+            if was and now != _ranges(stored):
+                struct.pack_into(">4H", out, b + 8, *_pack_ranges(now))
+                notes.append(f"S2[{i}] house numbers {_ranges(stored)} -> {now}")
     return bytes(out), notes
+
+
+def _ranges(f: tuple) -> tuple:
+    pair = lambda lo, hi: None if lo == 0x7FFF and hi == 0x7FFF else (lo, hi)
+    return pair(f[0], f[1]), pair(f[2], f[3])
+
+
+def _pack_ranges(r: tuple) -> tuple:
+    (e, o) = r
+    return (*(e or (0x7FFF, 0x7FFF)), *(o or (0x7FFF, 0x7FFF)))
 
 
 def patch_10(payload: bytes, table: dict, tile_id: int, m: OffsetMap) -> tuple[bytes, list[str]]:

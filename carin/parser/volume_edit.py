@@ -22,7 +22,10 @@ def pack(vol: CarinVolume, blk: CarinBlock, payload: bytes) -> bytes:
     if blk.comp == 0:
         raw = payload
     elif blk.comp == 2:
-        raw = payload[:8] + zlib.compress(payload[8:], 9)
+        if len(payload) % vol.sector_size or len(payload) // vol.sector_size > 255:
+            raise FitError(f"block {blk.sector:#x}: decoded length {len(payload)} is not 1..255 whole sectors")
+        # header +7 is the decoded size in sectors (every zlib block on the disc: usize * 512 == len(payload))
+        raw = payload[:7] + bytes([len(payload) // vol.sector_size]) + zlib.compress(payload[8:], 9)
     elif blk.comp & 1:
         enc = {0x00: cf1.encode_type00, 0x0E: cf1.encode_type0E}.get(blk.type)
         if enc is None:
