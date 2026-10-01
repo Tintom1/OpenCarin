@@ -112,6 +112,26 @@ pub fn dump_type(iso_path: &str, btype: u16, out: Option<&Path>) -> io::Result<(
     Ok(())
 }
 
+// --------------------------------------------------------------- dump-block
+
+/// Decode a single block and write it, header included. Prints type, CF, lengths and the
+/// decoded size; no pass over the disc.
+pub fn dump_block(iso_path: &str, sector: usize, out: Option<&Path>) -> io::Result<()> {
+    let vol = open(iso_path, true)?;
+    let blk = vol.block(sector).ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, format!("no block at sector {sector}")))?;
+    println!("sector {sector}: type {:#04x}, CF={}, {} bytes on disc", blk.btype, blk.comp, blk.raw.len());
+    let path = out.map(Path::to_path_buf).unwrap_or_else(|| format!("block_{sector}.bin").into());
+    match decode_block(&blk, &vol) {
+        Decoded::Data(d) => {
+            fs::write(&path, &d)?;
+            println!("decoded {} bytes -> {}", d.len(), path.display());
+            Ok(())
+        }
+        Decoded::Cf1Undecoded(_) => Err(io::Error::other(format!("no CF=1 decoder for type {:#04x}", blk.btype))),
+        Decoded::Failed(msg) => Err(io::Error::other(msg)),
+    }
+}
+
 // -------------------------------------------------------------------- stats
 
 fn entropy(counts: &[u32; 256], n: u32) -> f64 {

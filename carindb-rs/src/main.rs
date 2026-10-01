@@ -34,6 +34,15 @@ enum Cmd {
         #[arg(long)]
         out: Option<PathBuf>,
     },
+    /// Decode one block (by absolute CARINdb sector) to a file; no disc scan
+    DumpBlock {
+        /// Absolute CARINdb sector (BLOCK_ID >> 8), decimal or 0x-prefixed hex
+        #[arg(value_parser = parse_sector)]
+        sector: usize,
+        /// Output file (default: block_<sector>.bin)
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
     /// Cross-instance length and per-offset statistics for a block type
     Stats {
         #[arg(value_parser = parse_hex_u16)]
@@ -58,6 +67,14 @@ fn parse_hex_u16(s: &str) -> Result<u16, String> {
     u16::from_str_radix(strip_hex(s), 16).map_err(|e| e.to_string())
 }
 
+fn parse_sector(s: &str) -> Result<usize, String> {
+    match s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")) {
+        Some(h) => usize::from_str_radix(h, 16),
+        None => s.parse(),
+    }
+    .map_err(|e| e.to_string())
+}
+
 fn parse_hex_u32(s: &str) -> Result<u32, String> {
     u32::from_str_radix(strip_hex(s), 16).map_err(|e| e.to_string())
 }
@@ -66,6 +83,7 @@ fn main() -> io::Result<()> {
     let cli = Cli::parse();
     match cli.cmd {
         Cmd::DumpType { type_hex, out } => tools::dump_type(&cli.iso, type_hex, out.as_deref()),
+        Cmd::DumpBlock { sector, out } => tools::dump_block(&cli.iso, sector, out.as_deref()),
         Cmd::Stats { type_hex, json } => tools::stats(&cli.iso, type_hex, json),
         Cmd::Xref { block_id_hex } => tools::xref(&cli.iso, &block_id_hex),
     }

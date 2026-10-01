@@ -499,6 +499,21 @@ own records, on burned discs:
    blobs of the area and line layers `0x14`–`0x16` (`02-geo.md` §8.4); emptying the blobs removes
    them.
 
+**Node cycles, ordering and editing a tile in place (DVD 21708, tile `0x4c184f18`, 2026-10-01).** A section 5
+node is `u16 u, u16 v, u16 first segment, u16 flags`. The segments that meet at a node form a cycle: the node
+holds the offset of the first one and each segment's `+0x06` (if the node is its start) or `+0x08` (if its end)
+the next. On this tile the stored cycles equal the segments found by node in 358 / 358 nodes, and a cycle with
+at least two members is ordered **clockwise by the bearing leaving the node** (`+0x0E` at a start node, `+0x0F`
+at an end node) **starting from the smallest bearing**: 262 / 262 cycles (234 / 234 of three or more members run
+clockwise, none counter-clockwise). The two ordering rules above hold on the whole tile: the start node has the
+lower `(x, y)` in 460 / 460 records and the S5 nodes are sorted inside each level group of section 3
+(`+2` of a section 3 record is the group's first node). Section 10 entries (27 / 27) name a segment that shares
+a node with their owner. With these rules a tile can be edited without moving a byte of any section (same
+record counts): node positions, shape points, segment ends, lengths and bearings, junction type, one-way bits,
+node cycles. `examples/04_update_modugno_roundabout` does this to replace a crossing by a roundabout; the
+re-encoded tile (12,125 B in the original 24 sectors) reads back identically with the Python and the Rust
+decoder. Not yet run on a unit.
+
 **Section 10 (`T[0x14]` = 8 B): forbidden turns.** A segment's entries run from its `+0x12` to the next segment's. Each entry is `u32 BLOCK_ID` (own tile), `u16` offset of a target segment and `u16` flag:
 - flag 0: the target meets the owner at its start node (548 / 562);
 - flag 1: at its end node (514 / 542);
