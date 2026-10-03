@@ -73,8 +73,8 @@ With the reading and decoding of the binary format solved, our focus is shifted 
 * Trace inter-tile crossing logic (Section 6 twins) and hierarchical layer transitions (Section 8) in the firmware. On the data side the levels are known: which street roads and nodes reach `0x03`/`0x02`/`0x01` and how coarse segments are built ([`03-road-network.md`](docs/carindb/03-road-network.md) §6.7); still open are the ~4% of runs the disc leaves out and how coarse shapes are simplified.
 
 ### 2. Routable Export Pipeline (GeoPackage / OSRM / Valhalla) 🟠 High
-* Build an export pipeline converting decoded `0x00`–`0x03` road segments, nodes, geometry, one-way restrictions, turn penalties, and street names into standard GIS / routing formats (GeoPackage, GeoJSON, OSRM/Valhalla graph).
-* Validate routing accuracy by computing test routes and comparing against OSM/OSRM.
+* ✅ Street level (`0x00`) segments, nodes, geometry, one-ways, turn bans, names and speeds export to GeoPackage, CSV and OSM XML (`scripts/routing/export_routable.py`, [`examples/05_routable_export`](examples/05_routable_export)); `osrm-extract` reads the result and honours the bans. Checked on a CD against OSM and OSRM ([`03-road-network.md`](docs/carindb/03-road-network.md) §6.7).
+* Still open: the coarse levels `0x01`–`0x03`, signposts / toll points / house numbers as layers, Valhalla, a whole-disc export (the export is region-based), and a check on a DVD.
 
 ### 3. OpenStreetMap to CARiN Serializer & ISO Compiler 🟡 Ongoing
 * **Block Serializers**: Generate `0x00`–`0x03` road network tiles from OSM ways and nodes. The units read plain (CF=0) tiles, but a CD needs CF=1 packing to stay under ~700 MB (all-plain `carindb` would be ~509 MB for CD-ID 2952 and ~640 MB for CD-ID 21594, against 322 and 437 MB packed); `encode_type00` and `encode_type0E` exist. Hand-built plain tiles, their coarse parents and a city's POI index already run on a CNI1; the rules they need are in [`03-road-network.md`](docs/carindb/03-road-network.md) §6.7 and [`01-architecture.md`](docs/carindb/01-architecture.md) §4.4.2.

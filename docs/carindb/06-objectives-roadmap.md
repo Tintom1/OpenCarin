@@ -127,7 +127,13 @@ Every block is readable except one group:
 11. **Typed records per block type** (`carin` API) instead of per-type scripts.
 12. **Routable export**: nodes/edges with length, class, speed, one-way, toll, turn
     restrictions, names, house numbers → GeoPackage + a routing format; check routes against
-    OSM/OSRM in a test area.
+    OSM/OSRM in a test area. Street level (`0x00`) done 2026-10-03: `carin/export/` and
+    `scripts/routing/export_routable.py` write GeoPackage (nodes, edges, restrictions), CSV and
+    OSM XML (read by `osrm-extract` as is); checked on a CD, 118 tiles, 34,215 segments, against OSM
+    and OSRM (`03-road-network.md` §6.7, "Routable export check"). Region-based: pick tiles by
+    `--bbox`. Left open: the coarse levels `0x01`–`0x03`, signposts (S11), toll points (S13) and
+    the `0x04` house numbers as export layers, S10 flags 2 and 3, Valhalla, a whole-disc export
+    (memory), a check on a DVD.
 13. ~~**Unknown blocks** `0x18`, `0x1A`, `0x1B`~~ Done 2026-09-29 (`01-architecture.md` §4.7,
     `scripts/routing/check_tmc_index.py --geometry`, issue #17; DVDs 21708 and 21734): TMC
     indexes over `0x17` and `0x19`. Left open: the remaining `0x17` and `0x19` record fields;

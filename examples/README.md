@@ -17,6 +17,9 @@ Looks up a street address (country, city, street, number) through the disc's own
 ### `04_update_modugno_roundabout`
 Updates a piece of the map from OpenStreetMap on a copy of the disc: a roundabout built at Modugno after the 2016 data replaces the old crossing in a street-level tile and its coarse tile, with every reference into them rewritten (delta against OSM, tile editor, validation, read back with the Python and the Rust decoder). Every change is logged in `CHANGES.md`; not run on a unit (`HARDWARE_TEST.md`).
 
+### `05_routable_export`
+Exports the street-level road graph of a bounding box (nodes, segments with one-ways, speeds, names, forbidden turns) to GeoPackage, CSV and OSM XML, builds an OSRM graph from it and routes on it. Region-based; the README lists what is and is not exported and how travel times are modelled.
+
 ## Setup
 Before running the examples, ensure your environment is fully set up:
 ```bash

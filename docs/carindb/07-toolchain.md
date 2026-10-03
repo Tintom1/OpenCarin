@@ -19,6 +19,8 @@
 | `carin/parser/geometry.py` | `road_segments(data, table)`: WGS84 road segments of a decoded `0x00` tile with name, locality, display class; `tile_frame`, `header_bounds` — see [`02-geo.md`](02-geo.md) §8.3 |
 | `carin/parser/house_numbers.py` | `segment_house_numbers(data)`: per-segment house numbers of a `0x04` block (two sides, scheme), `tile_block_id`, `run_envelope` = the `0x0E` S2 even/odd summary — see [`03-road-network.md`](03-road-network.md) §6.4 |
 
+| `carin/export/` | **routable export** of the street-level graph (`0x00`): `tiles.parse_tile` (nodes, segments, S10 bans of one decoded tile), `graph.build_graph` (joins tiles through the S6 twins, `components`), `cost.CostModel` (travel time: default speed for category 0, divisor per road type, junction delay), `router.Router` (edge-based Dijkstra with turn bans, for validation), `writers` (GeoPackage, CSV, OSM XML), `readers.read_gpkg` — see [`03-road-network.md`](03-road-network.md) §6.7. Stdlib only |
+
 ## Analysis & extraction scripts (`scripts/`)
 
 ### Geo / records
@@ -52,6 +54,11 @@
 | `cf1_try.py` | decodes a single block, prints descriptor |
 | `cf1_validate.py` | structural + text oracles on selected blocks |
 | `cf1_sweep.py` | batch decodes, reports success rate (1,200/1,200 on type `0x00`) |
+
+### Routable export
+| Script | Function |
+|---|---|
+| `export_routable.py` | `python3 scripts/routing/export_routable.py carindb --sector-size 512 --bbox LON0 LAT0 LON1 LAT1 --out build/region [--speed-model m.json]`: tiles chosen by header bounds, graph written as `region.gpkg`, `region_{nodes,edges,restrictions}.csv` and `region.osm` (for `osrm-extract`; Valhalla needs `osmium cat` first). Reads an ISO or a bare `carindb`; region-sized only (a whole disc does not fit in a few GB) |
 
 ### Road-network oracles (STEP 2, 3 & 4)
 | Script | Function |
