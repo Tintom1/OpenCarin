@@ -94,6 +94,39 @@ class IsoImage:
         self._f.close()
 
 
+class RawImage:
+    """A bare `carindb` file (no ISO 9660 wrapper), e.g. one extracted from a CD.
+
+    Offers the part of the IsoImage interface that CarinVolume uses: the file is exposed as
+    `/carindb`, so `CarinVolume(RawImage(path))` works like it does for a disc image.
+    """
+
+    def __init__(self, path: str):
+        self._f = open(path, "rb")
+        self._f.seek(0, 2)
+        self.files: Dict[str, IsoFile] = {"/" + CD_DB_NAME: IsoFile("/" + CD_DB_NAME, 0, self._f.tell())}
+        self.volume_id = ""
+        self.publisher = ""
+
+    def read(self, iso_file: IsoFile, offset: int, length: int) -> bytes:
+        if offset >= iso_file.size:
+            return b""
+        length = min(length, iso_file.size - offset)
+        self._f.seek(iso_file.offset + offset)
+        return self._f.read(length)
+
+    def close(self) -> None:
+        self._f.close()
+
+
+def open_image(path: str):
+    """Open an ISO 9660 image, or a bare `carindb` file when `path` is not an ISO."""
+    try:
+        return IsoImage(path)
+    except ValueError:
+        return RawImage(path)
+
+
 @dataclass
 class CarinBlock:
     sector: int          # absolute virtual CARINdb sector
@@ -130,8 +163,10 @@ class CarinVolume:
     Two on-disc layouts exist. DVD-era images split the database into
     /DB/DB_0, /DB/DB_1 and count block addresses (BLOCK_ID >> 8, length,
     usize) in 512-byte sectors. CD-era images carry one /carindb file and
-    count the same fields in 2048-byte sectors. When `db_paths` is not given
-    the layout is detected from the image; `sector_size` overrides the unit.
+    count the same fields in 2048-byte sectors, but not always: a 2007 CD with
+    DB-REL 34 counts them in 512-byte sectors. For a single /carindb the unit is
+    therefore probed (see `probe_sector_size`) unless `sector_size` is given.
+    When `db_paths` is not given the layout is detected from the image.
 
     `subrel` is the CF=1 sub-revision (see cf1.probe). The default keeps the
     historical value 9; call calibrate() to detect it from the data.
@@ -142,6 +177,8 @@ class CarinVolume:
         self.image = image
         if db_paths is None:
             db_paths, detected = self._detect_layout(image)
+            if sector_size is None and detected == ISO_SECTOR:
+                detected = self.probe_sector_size(image, image.files[db_paths[0]])
         else:
             detected = CARIN_SECTOR
         self.sector_size = sector_size or detected
@@ -159,6 +196,36 @@ class CarinVolume:
             if path.lower() == "/" + CD_DB_NAME:
                 return (path,), ISO_SECTOR
         raise ValueError("no CARINdb found (expected /DB/DB_0 + /DB/DB_1 or /carindb)")
+
+    @staticmethod
+    def count_blocks(image, iso_file: IsoFile, unit: int, window: int = 4 << 20) -> int:
+        """Number of block headers found in the first `window` bytes when sectors are `unit` bytes.
+
+        A header is valid when the upper 24 bits of its BLOCK_ID equal its own sector number and
+        the length (low 8 bits) is not zero; the scan then jumps over the block, like `walk`.
+        With the wrong unit the sector numbers never match and only chance hits remain.
+        """
+        buf = image.read(iso_file, 0, window)
+        sector = count = 0
+        while (sector + 1) * unit <= len(buf):
+            bid = struct.unpack_from(">I", buf, sector * unit)[0]
+            length = bid & 0xFF
+            if (bid >> 8) == sector and length:
+                count += 1
+                sector += length
+            else:
+                sector += 1
+        return count
+
+    @classmethod
+    def probe_sector_size(cls, image, iso_file: IsoFile) -> int:
+        """Pick the sector unit (2048 or 512) whose block chain holds together at the file start.
+
+        Defaults to 2048 (the usual CD unit) unless 512 finds clearly more block headers.
+        """
+        n2048 = cls.count_blocks(image, iso_file, ISO_SECTOR)
+        n512 = cls.count_blocks(image, iso_file, CARIN_SECTOR)
+        return CARIN_SECTOR if n512 >= 8 and n512 > 2 * n2048 else ISO_SECTOR
 
     @property
     def layout(self) -> dict:

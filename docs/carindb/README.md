@@ -53,7 +53,7 @@ Prior community notes contained errors; corrected against the dump:
 
 | Forum claim | Dump verification | Outcome |
 |---|---|---|
-| "1 sector = 2048 bytes" | `BLOCK_ID.sector * 512 == offset` for 315,095/315,095 blocks | ❌ on the DVD the CARINdb sector is **512 B** (2048 is the *ISO* sector). ⚠️ CD discs with a single `/carindb` do use 2048 (`carinet16s2048` in `ABSTRACT`) |
+| "1 sector = 2048 bytes" | `BLOCK_ID.sector * 512 == offset` for 315,095/315,095 blocks | ❌ on the DVD the CARINdb sector is **512 B** (2048 is the *ISO* sector). ⚠️ CD discs with a single `/carindb` usually use 2048 (`carinet16s2048` in `ABSTRACT`), but a 2007 Master CD with DB-REL 34 uses 512 (`carinet16s512`), so the unit is probed, see `01-architecture.md` §1 |
 | "block from 1 to 8 sectors" | observed lengths 1..70 | ❌ length field = 1 byte, max observed 70 sectors (35 KiB) |
 | "BLOCK_ID = 0x01030000 → block #3" | `0x00000304` = sector 3, 4 sectors | ⚠️ forum example was little-endian; rule `sector<<8 \| len` is correct |
 | "UNCOMPRESSED_SIZE (1 byte)" | `us*512 == len(payload)+8` on all compressed blocks | ✅ expressed **in 512-B sectors**, not bytes |

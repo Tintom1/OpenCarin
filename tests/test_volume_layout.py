@@ -74,3 +74,55 @@ def test_0e_s2_offset_width_follows_subrel():
     from carin.parser.cf1.decoder_0e import s2_offset_bits
     assert s2_offset_bits(8) == 13
     assert s2_offset_bits(9) == 15
+
+
+def _chain_file(path, unit, n_blocks=40):
+    """A bare carindb whose block headers count sectors in `unit`-byte sectors."""
+    lengths = [2] + [1, 2, 3] * (n_blocks // 3 + 1)
+    buf = bytearray()
+    sector = 0
+    starts = []
+    for length in lengths[:n_blocks]:
+        buf += bytes(sector * unit - len(buf))          # zero padding up to the block start
+        buf += struct.pack(">IHBB", sector << 8 | length, 0x12 if sector == 0 else 0x04, 0, 1)
+        starts.append((sector, length))
+        sector += length
+    buf += bytes(sector * unit - len(buf))
+    path.write_bytes(bytes(buf))
+    return starts
+
+
+@pytest.mark.parametrize("unit", [512, 2048])
+def test_probe_sector_size_follows_the_block_chain(tmp_path, unit):
+    from carin.parser.iso import RawImage
+    f = tmp_path / "carindb"
+    _chain_file(f, unit)
+    img = RawImage(str(f))
+    assert CarinVolume.probe_sector_size(img, img.files["/carindb"]) == unit
+
+
+def test_raw_carindb_opens_and_walks_with_a_512_byte_unit(tmp_path):
+    from carin.parser.iso import RawImage, open_image
+    f = tmp_path / "carindb"
+    starts = _chain_file(f, 512)
+    img = open_image(str(f))
+    assert isinstance(img, RawImage)           # not an ISO 9660 image
+    vol = CarinVolume(img)
+    assert vol.sector_size == 512
+    walked = [(b.sector, b.length) for b in vol.walk()]
+    assert walked == starts
+    assert vol.block(starts[3][0]).type == 0x04
+
+
+def test_explicit_sector_size_overrides_the_probe(tmp_path):
+    from carin.parser.iso import RawImage
+    f = tmp_path / "carindb"
+    _chain_file(f, 512)
+    assert CarinVolume(RawImage(str(f)), sector_size=2048).sector_size == 2048
+
+
+def test_empty_file_defaults_to_the_cd_unit(tmp_path):
+    from carin.parser.iso import RawImage
+    f = tmp_path / "carindb"
+    f.write_bytes(bytes(8192))
+    assert CarinVolume(RawImage(str(f))).sector_size == 2048

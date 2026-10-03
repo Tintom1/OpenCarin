@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from .core import *
 from .core import _walk
 from .constants import *

@@ -44,6 +44,8 @@ Created         : 2015-08-04 16:09:55
 > - the addressing unit is **2048** bytes. CD-ID 21594's ABSTRACT reads `carinet16s2048`.
 >
 > `BLOCK_ID >> 8` counts 2048-byte sectors and `UNCOMPRESSED_SIZE` counts 2048-byte sectors too. With that unit, the block chain covers 100% of the file with no gaps on both CDs; with 512 it breaks after the first block.
+>
+> **Not every CD counts in 2048-byte sectors.** A third CD, a Master CD from about 2007 with DB-REL 34 (single `/carindb` of 392,500,224 bytes, ABSTRACT `Event Texts: carinet16s512.20041130`), counts `BLOCK_ID >> 8` in **512-byte** sectors: the chain covers the file with 766,602 sectors and 76,863 blocks (24,989 of type `0x00`), while with 2048 it finds only three chance hits. As on the DVDs, the ABSTRACT names the unit, but reading it is not needed: `CarinVolume.probe_sector_size` counts the block headers in the first 4 MiB under each unit and takes 512 only when it finds clearly more (at least 8 and more than twice as many as with 2048); otherwise it keeps 2048. Pass `sector_size=` to override. A bare `carindb` file extracted from a disc opens with `carin.parser.iso.open_image` / `RawImage`.
 
 > **CD-i Bridge, and burning a modified CD** (CD-ID 2952, the disc the Renault CNI1 takes;
 > tested on the unit 2026-09-28/29).
