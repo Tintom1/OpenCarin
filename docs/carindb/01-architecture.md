@@ -29,7 +29,7 @@ Created         : 2015-08-04 16:09:55
 | `/ABSTRACT` | 848 | ASCII. Tool 5001, CD number, Navteq build (`eur_hw_her_bmw_14q4_20150721a_w`), line `Event Texts: carinet16s512.20080318` |
 | `/BIBLIOGR` | 38 | `CD-ID 21708DB-REL 34BSW-REL 10 11` — DB version and minimum SW |
 | `/COPYRIGH` | 622 | Continental Automotive GmbH copyright |
-| `/CARINET` | 750,592 | "Event Texts" catalog (UI strings / event codes). **Separate block space** from `DB/` (block type `0x0066`) |
+| `/CARINET` | 750,592 | "Event Texts": the ALERT-C event list, 1,493 events in 11 text sets (§4.5). **Separate block space** from `DB/` (block type `0x0066`) |
 | `/DB/DB_0` | 2,147,429,888 | CARINdb, virtual window 0 |
 | `/DB/DB_1` | 1,175,287,296 | CARINdb, virtual window 1 |
 | `/DVD9/PADDING` | 4,096 | Padding for DVD9 layer break |
@@ -909,18 +909,98 @@ Rules a writer must keep:
 4. Choosing a POI, unlike a street, also needs the road levels linked near the car
    (`03-road-network.md` §6.7).
 
-### 4.5 `CARINET` — Event Text Catalog (independent block space)
+### 4.5 `CARINET` — ALERT-C event texts (independent block space)
+
+`CARINET` is the RDS-TMC (ALERT-C, ISO 14819) event list: for every event code the phrase in 11 text
+sets, plus an attribute word per event. It is a CARIN block space of its own: the 512-byte unit
+(`carinet16s512` in the ABSTRACT), `BLOCK_ID = (sector << 8) | length in sectors`, and the 8-byte block
+header of `carindb`. Decoded in full on a 2007 CD (DB-REL 34, 750,592 bytes = 1,466 sectors); 0 failures in
+`scripts/routing/check_carinet.py`, reader `carin/parser/carinet.py`.
 
 ```
-+0x00 BLOCK_ID 0x00000002  (sector 0, 2 sectors = 1024 bytes)
-+0x04 BLOCK_TYPE 0x0066    CF=0  US=0
+sector 0-1       root, BLOCK_TYPE 0x66
+sector 2-36      0x64 event table, a chain of 2 blocks (sector 2 + 32 sectors, sector 0x22 + 3)
+sector 37-1465   49 blocks 0x65, one chain over all text sets (1,429 sectors, to the end of the file)
+```
+
+**Root (`0x66`).**
+
+```
++0x00 BLOCK_ID 0x00000002   +0x04 BLOCK_TYPE 0x0066   CF=0
 +0x08 SECTION_DESCRIPTOR[4] = {0x001C,2}, {0x0034,49}, {0x01C4,3}, {0x01CA,14}
-+0x34 SECTION_1: 49 records of 8 bytes -> ">IHBB" reinterpreted as:
-      first_id(u24) | count(u8) | limit(u16) | group(u8) | 0(u8)
+S0 (0x1C): 2 records + a terminator, 8 B -> ">IHH"
+      BLOCK_ID of a 0x64 block | its last event code (0x0750, 0x07FF) | 0       terminator {0, 0x07FF, 0}
+S1 (0x34): 49 records, 8 B, one per 0x65 block, in chain order -> ">IHBB"
+      BLOCK_ID | limit = the last (highest) event code in the block | text set | 0
+S3 (0x1C4): 3 x u16 = 0x0066, 0x0064, 0x0065 (the block types of the file)
+S4 (0x1CA): 14 x (u16, u16) = (1,20) (2,4) (3,8) (4,6) (5,24) (6,4) (7,12) (8,4) (9,28) (10,16) (11,4) (12,8) (13,8) (14,4)  ❓
 ```
-`group` = 0,1,2,3,4,5,6,7,0x0A,0x0C,0x0F,0x11 → language / text family index.
 
-Cross-disc data point (Audi MMI Basic Plus CD, Benelux, DB-REL 34): see `../CARINDB_BLUEPRINT_EN.md` §4.5.
+(An earlier reading of S1 as `first_id(u24) | count(u8)` is the same bytes: the `u32` is the BLOCK_ID, so the
+"chain" `0x25 + 0x20 = 0x45` is sector + length. `limit` is not an end-of-group sentinel: it is the last event
+code of the block, and `0x07FF` only in the last block of a text set because that is the set's last code.)
+
+**`0x65` — phrase block.** Header: `+0x08 {u16 offset = 0x18, u16 count}`, `+0x0C` next and `+0x10` previous
+BLOCK_ID (one chain over all 49 blocks, across the text sets), `+0x14` u16 = text set << 8. Then `count`
+records of 4 bytes `(u16 event code, u16 offset of the phrase in the block)`, ascending by code, and the
+NUL-terminated Latin-1 phrases (49 / 49 blocks: last code = `limit`, codes ascend, offsets inside the block).
+
+**`0x64` — event table.** Header: `+0x08 {u16 offset = 0x14, u16 count}`, `+0x0C` next, `+0x10` previous. Records of
+6 bytes `(u16 key, u16 attribute word, u16 offset of a short tag in the block)`, 1,493 in all (1,388 + 105), ascending
+by `key & 0x7FF`, which is the event code; the codes are exactly those of the text sets.
+
+| field | meaning (checked against the published ALERT-C event list, below) |
+|---|---|
+| `key & 0x7FF` | the event code |
+| `key >> 11` | `directionality << 2 \| nature`: nature 0 event, 1 forecast, 2 silent (a cancellation); directionality 1 one direction, 2 both, 0 for the silent events. Seen: 2 (39 events), 4 (858), 5 (124), 6 (2), 8 (360), 9 (109), 10 (1) |
+| attribute bits 0-3 | quantifier type 1..12 on 328 events; `0xF` on 1,165 (no quantifier). Every event with 1..12 has a `Q` placeholder in its Dutch, English and Swedish phrase (328 / 328; the German and Danish phrases do not use `Q`) |
+| bits 4-6 | duration: 1 `D` (dynamic, 928), 2 `(D)` (139), 3 `L` (longer lasting, 327), 4 `(L)` (60), 0 none (39; the silent events). The brackets are those of the published list |
+| bits 7-8 | urgency: 0 none (708), 1 `U` (780), 2 `X` (5) |
+| bits 9-14 | update class 1..39 (all 39 values occur) |
+| bit 15 | never set |
+| tag | the event's phrase code in the published list (`A50`, `A2.A1D`, `B1.Z95`, `C58`, `T54.A1` …); empty for the 39 silent events with no direction |
+
+**Checked against the published list.** The columns of the ALERT-C event list as published in the OpenStreetMap wiki
+(`TMC/Event_Code_List`) and used by the open-source decoder redsea (`src/tmc/events_data.cc`; not copied here) are
+nature, quantifier type, duration, directionality, urgency, update class and the phrase code. For the 1,492 event codes
+that both have, the fields decoded above agree in 8,951 of 8,952 comparisons (update class, quantifier type, duration,
+urgency and nature in all 1,492; directionality in 1,491, event 922 is 2 here and 0 there) and the tag equals the phrase code in 1,476 of
+1,492. The 16 differences are 14 events of one family (`T54.A1` … `T54.Q2` here, `T4.A1` … in the list: events 1807-1819)
+and events 323 (`B11.C12` / `B11.C2`), 1054 (`G3.G20` / `G3.G23`) and 2030 (empty / `F99`). The file is an older list:
+it lacks 59 codes of the published list (for example 39) and has code 2047, "(null message)", which the list does not.
+
+**Text sets.** 1,493 codes (1..0x7FF) in each, 1,492 in set 3 and 1,483 in set 10 (the rest are missing
+there). The language follows from the phrases; the numbers are those of the `LANGUAGE` field of the `0x0A`
+country records (§4.4):
+
+| set | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 10 | 12 | 15 | 17 |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| language | Dutch | English | French | German | Italian | Spanish | Swedish | Danish | Finnish | Portuguese | English, another wording |
+
+**Set 17 is American English.** 554 of its 1,493 phrases differ from set 2 and the differences are the usual ones: "stopped"
+for "stationary" (95 phrases), "highway" for "carriageway" (47), "road construction" for "roadworks" (43), "feet" for "metres"
+(34), "spilled cargo" for "shed load" (32), "opposing vehicles" for "contraflow" (35), "trucks" for "lorries" (12), "railroad" for "level"
+(level crossing, 15), "pass" for "passable" (8). The `LANGUAGE` list of the `0x0A` records above has no 17. Event 1 is "traffic problem" (`Verkehrsbehinderung`,
+`Verkeersproblemen`), event 2 the queue with a speed quantifier.
+
+**How `CARINET` meets `carindb`.** An ALERT-C message is an event code and a location code. The location side
+is `0x17` (the location tables, §4.7) and section 12 of the road tiles (`03-road-network.md` §6.7); the
+event side is this file.
+
+* The text set is the `LANGUAGE` of the country: a country's `0x0A` record names the language, and sets
+  1-7, 10, 12 and 15 carry the numbers of Dutch … Portuguese in the `0x0A` list. The `0x0A` list also has
+  languages without a set (Catalan 11, Norwegian 14, Polish 18 …). `check_carinet.py --carindb` prints both sides for a disc; not
+  run on one yet.
+* The event code of a message is the key into every text set and into the `0x64` table.
+* The TMC table of a country (`0x18`, `TABLE = (LTN << 4) | CC`) carries the country, so country → language → text set
+  → phrase for the event, and `0x17` → name and place for the location.
+
+Not known: how the firmware combines phrase, quantifier and location (no firmware reader examined), what S4 is, and the
+fields marked ❓. S4 was tried against the quantifier counts, the text set numbers and offsets into the root block (which is
+zero after `0x202`): none fits.
+
+Cross-disc data point (Audi MMI Basic Plus CD, Benelux, DB-REL 34): the decode above is from that disc; the header
+is byte-for-byte identical to that of CD-ID 21594 (`../CARINDB_BLUEPRINT_EN.md` §4.5).
 
 ### 4.6 `0x0C` — Administrative Parcel (CF=2 zlib)
 

@@ -29,7 +29,7 @@ We have achieved major breakthroughs across the entire format specification. Eve
   * **CD** (e.g. Carminat CNI1): The database is a single `/carindb` file and the unit is **2048 bytes**.
   * The disc's `ABSTRACT` names the unit: `carinet16s512` on `NAV_DB_21708`, `carinet16s2048` on CD-ID 21594.
   * The block chain covers **100% of the volume with zero gaps** (315,095 blocks on DVD 21708).
-  * `/CARINET` identified as the RDS-TMC ALERT-C event and weather phrase catalog across 8–9 European languages.
+  * `/CARINET` decoded as the RDS-TMC ALERT-C event list: 1,493 events with their phrases in 11 text sets (10 languages), an attribute word per event (nature, quantifier type, duration, urgency, update class), and the text set numbered like the `LANGUAGE` of the `0x0A` country records (`carin/parser/carinet.py`, [`01-architecture.md`](docs/carindb/01-architecture.md) §4.5).
 * ✅ **Coordinate System Cracked**:
   $$X = (lon + 30.0) \times \frac{2 \times 10^9}{360}, \quad Y = (lat + 0.0) \times \frac{2 \times 10^9}{360}$$
   Origin is at $30^\circ\text{ W}$ on the Equator, linear in latitude (no Mercator projection). 1 unit $\approx 2\text{ cm}$ at the equator. Verified with 38 European city anchors (RMS error $2.0\text{ km}$, matching published city-center offsets).
