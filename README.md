@@ -58,6 +58,7 @@ We have achieved major breakthroughs across the entire format specification. Eve
   * A city's POI index written from scratch (`0x06`, `0x10`, `0x11`, `0x0C` sections 3 and 5): made-up POIs, with and without brands, are listed, found by name and routed to. See [`01-architecture.md`](docs/carindb/01-architecture.md) §4.4.2 and [`03-road-network.md`](docs/carindb/03-road-network.md) §6.7.
 * ✅ **TMC Traffic Message Channel Indices Decoded (`0x17`–`0x1B`)**:
   * TMC location tables (`0x17`), table index (`0x18`), TMC position records (`0x19`), and spherical coordinate spatial index (`0x1B` → `0x1A`).
+  * The 100-byte `0x17` location record (names, links, coordinates) and the road tiles' section 12 reference `(direction, code, flags & 0x3FF = table id)` are decoded on a 2007 CD (`carin/parser/tmc.py`, `scripts/routing/check_tmc_locations.py`); see [`01-architecture.md`](docs/carindb/01-architecture.md) §4.7.
 * ✅ **High-Performance Rust Toolchain (`carindb-rs`)**:
   * Fast native CLI tool with memory-mapped ISO access, ultra-fast CF=2 zlib and full CF=1 bit-packing decoders, supporting `dump-type`, `stats`, and disc-wide `xref` cross-referencing.
 

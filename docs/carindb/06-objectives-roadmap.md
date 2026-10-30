@@ -56,9 +56,9 @@ Every block is readable except one group:
 | `0x0E` | **street-name directory**: name, kind, language, locality → runs of `0x00` segments + house-number ranges | ✅ | `03-road-network.md` §6.3.1 |
 | `0x10` | POI records (name, locality, brand, address, phone, POI ID, road link); branded POIs in a category copy and a brand copy | ✅ · written by us on a CNI1 | `02-geo.md` §8.1.1, `01-architecture.md` §4.4.2 |
 | `0x14`–`0x16`, `0x1C`–`0x1E` | background layers (sea, forest, built-up, rivers, rail) per zoom | ✅ categories | `02-geo.md` §8.4 |
-| `0x17`, `0x19` | TMC locations: `0x17` the location tables of 13 countries (100 B records by location code), `0x19` ~92,000 records in Germany sorted by position, linked to a `0x00` S4 segment and to other `0x19` records; both one linked block chain | ✅ chains, keys, `0x19` tile/segment links (both DVDs) · ❓ other record fields | `03-road-network.md` §6.7 (S12), `01-architecture.md` §4.7 |
+| `0x17`, `0x19` | TMC locations: `0x17` the location tables of 13 countries on the DVDs, 14 on the 2007 CD (100 B records by location code: names, parent, road, previous / next point, six coordinate pairs), `0x19` (DVD only) ~92,000 records in Germany sorted by position, linked to a `0x00` S4 segment and to other `0x19` records; both one linked block chain | ✅ chains, keys, `0x19` tile/segment links (both DVDs); `0x17` record layout, section 12 link `(direction, code, flags & 0x3FF = table id)` (2007 CD, `check_tmc_locations.py`) · ❓ bits of `+0x02`, `+0x05` and `flags >> 10`, which of the six points is which, `+0x1C`/`+0x1E` | `03-road-network.md` §6.7 (S12), `01-architecture.md` §4.7 |
 | `0x12` | root / superblock (schema, `RECORD_SIZE_TABLE`, DB-REL, two coverage boxes, `BLOCK_MAP` of first / last block per type) | ✅ · ❓ what the coverage boxes are used for | `01-architecture.md` §3 (PR #37) |
-| `0x18` | TMC location-table index: one block per table (`TABLE = LTN << 4 \| CC`), 0x17 `BLOCK_ID` + first location code; reached from `0x07` S1 | ✅ (both DVDs; CC/LTN match the published TMC list, UK LTN 10 not listed) · ❓ `0x07` S1 `+0x0A` bytes | `01-architecture.md` §4.7 |
+| `0x18` | TMC location-table index: one block per table (`TABLE = LTN << 4 \| CC`), 0x17 `BLOCK_ID` + first location code; reached from `0x07` S1 | ✅ (both DVDs and the 2007 CD, 14 tables; CC/LTN match the published TMC list; UK: the DVD table has LTN 10 and the published list 7, the CD's road tiles use both, `01-architecture.md` §4.7) · ❓ `0x07` S1 `+0x0A` bytes; `0x07` S1 not checked on the CD | `01-architecture.md` §4.7 |
 | `0x1B` → `0x1A` | position index over `0x19`: root (key origin 13.5° E 52.5° N, COUNTRY_ID) → one `0x19` `BLOCK_ID` + first key per block; `0x1B` is in the `0x07` layer directory | ✅ (both DVDs): key = 100 m steps on a 6,371 km sphere, `x` scaled by `cos φ`, rounded · ❓ `0x0104`, `0x1000`; no firmware reader found | `01-architecture.md` §4.7 |
 
 ## 3. Corrected conclusions (do not rely on the old text)
@@ -157,9 +157,14 @@ Every block is readable except one group:
     layers checked on a DVD, Valhalla, a whole-disc export (memory).
 13. ~~**Unknown blocks** `0x18`, `0x1A`, `0x1B`~~ Done 2026-09-29 (`01-architecture.md` §4.7,
     `scripts/routing/check_tmc_index.py --geometry`, issue #17; DVDs 21708 and 21734): TMC
-    indexes over `0x17` and `0x19`. Left open: the remaining `0x17` and `0x19` record fields;
-    `0x1A`/`0x1B` `0x0104`, `0x1000`; `0x07` S1 `+0x0A`; the firmware reader (none found; the
-    `hdltmc +0x2f620` switch is not one).
+    indexes over `0x17` and `0x19`. 2026-10-09 (2007 Master CD, issue #22): `0x17` and `0x18`
+    are on a CD too (1,164 / 14 blocks, 14 tables); the 100-byte `0x17` record is decoded (names,
+    links, six coordinate pairs) and section 12 is populated there, `flags & 0x3FF` = table id
+    (`01-architecture.md` §4.7, `03-road-network.md` §6.7, `carin/parser/tmc.py`,
+    `scripts/routing/check_tmc_locations.py`). Left open: the bits of `+0x02`, `+0x05` and
+    `flags >> 10`, which of the six points is which, `+0x1C`/`+0x1E`; the remaining `0x19` record
+    fields; `0x1A`/`0x1B` `0x0104`, `0x1000`; `0x07` S1 `+0x0A`; the firmware reader (none found;
+    the `hdltmc +0x2f620` switch is not one).
 
 ### D0. Which value to write for an OSM way (study of 2026-10-01)
 

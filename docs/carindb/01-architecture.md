@@ -931,7 +931,7 @@ The `0x0C` block contains administrative region geometry and localized toponyms,
 *   **S3 (12 bytes/record)**: Localized name mapping / metadata.
 *   **Name Blob**: The final section of the block (likely S4 or S5) is hypothesized to hold the actual null-terminated string bytes, mirroring the structure used in `0x0E`.
 
-### 4.7 `0x18`, `0x1A`, `0x1B` — TMC indexes (DVD only, 2026-09-29)
+### 4.7 `0x17`–`0x1B` — TMC location tables and indexes (2026-09-29; 2007 CD 2026-10-09)
 
 These three types are one-level sorted indexes over the two TMC block chains: `0x18` over
 `0x17` (TMC location tables, keyed by location code) and `0x1B` → `0x1A` over `0x19`
@@ -940,8 +940,13 @@ block of DVD 21708 **and** DVD 21734 (`scripts/routing/check_tmc_index.py [--geo
 0 failures on both). No firmware reader has been found (see "Firmware" below); the
 evidence is the disc data, the linked `0x00` geometry and a published TMC table list.
 
+**`0x17` and `0x18` are not DVD-only.** The 2007 Master CD (DB-REL 34, 512-byte unit) carries
+1,164 `0x17` blocks and 14 `0x18` blocks (all CF=2, 189,973 location records) but no `0x19`,
+`0x1A` or `0x1B`. The 100-byte `0x17` record below was decoded from it, with names and
+coordinates (`carin/parser/tmc.py`, `scripts/routing/check_tmc_locations.py`, 2026-10-09).
+
 ```
-0x07 SECTION_1 (13 records of 20 B, one per TMC table)  ─► 0x18 (13 blocks) ─► 0x17 (920 / 1,076 blocks)
+0x07 SECTION_1 (13 records of 20 B, one per TMC table)  ─► 0x18 (13 blocks) ─► 0x17 (920 / 1,076 blocks; 2007 CD: 14 / 1,164)
 0x07 layer directory (record with a zero root square)    ─► 0x1B (1 block)  ─► 0x1A (1 block) ─► 0x19 (279 / 282 blocks)
 ```
 
@@ -954,7 +959,39 @@ blocks: `+0x0C` next `BLOCK_ID`, `+0x10` previous (0 at the ends); S0 starts at 
 | `+0x16` | u16 first location code | |
 | `+0x18` | u16 last location code | last key |
 | S0 record | 100 B (`RECORD_SIZE_TABLE[0x46]`), starts with the u16 location code; codes ascend | 40 B, starts with the key; keys ascend comparing `x`, then `y`, as **unsigned** u16 |
-| Content | the location tables of 13 countries | 92,341 / 93,189 records; keys within Germany (below) |
+| Content | the location tables of 13 countries (2007 CD: 14 tables, 189,973 records; DVDs: 13) | 92,341 / 93,189 records; keys within Germany (below); none on the CD |
+
+**`0x17` record (100 B, big-endian; 2007 CD, 189,973 records in 14 tables, 0 failures).** The block
+is the 8-byte header, `+0x08` the descriptor `{u16 offset = 0x1C, u16 count}`, the records, and then
+the NUL-terminated Latin-1 strings they point to (the first string starts at the end of the record
+area). Names are in the language of the table (`Belgien`, `Brug over het Amsterdam-Rijnkanaal`).
+
+```
++0x00 u16 location code           ascending in the chain, unique per table
++0x02 u8  type bits ❓            0 area (17,487), 1 line (32,327); point: 2, 6, 10, 14, 18, 22, 26, 30
+                                   (also 25: 3 records). Only the area / line / point split is decoded
++0x05 u8  0..6 ❓
++0x06 u16 → road number           "A1", "B107", "E18"       ┐ offsets into the block's payload, 0 = none;
++0x08 u16 → road name             "Uppsalavägen"            │ every one lands in the string area
++0x0A u16 → location name         nearly always set         │ (0 failures)
++0x0C u16 → second name           point: the crossing road ("A9", "N527"); line: the end name
++0x0E u16 parent area code        0 at the roots (continents); a code of the same table otherwise
++0x10 u16 road code               shared by the points of one road (all NL A1 points: 33000)
++0x12 u16 previous point          0 at the end of the road; +0x14 of that point is this code
++0x14 u16 next point              119,460 / 119,460 links symmetric
++0x18 u16 first point, +0x1A u16 last point     lines only (0x00 for areas and points)
++0x20, +0x38, +0x44, +0x4C, +0x54, +0x5C   six (u32 X, u32 Y) CARiN coordinates; (0, 0) = absent
++0x1C, +0x1E and the bytes not named here ❓
+```
+
+Every link (`+0x0E`, `+0x10`, `+0x12`, `+0x14`, `+0x18`, `+0x1A`) is a location code of the same
+table. `+0x20` is the location (`X = (lon + 30) · 2e9/360`, `Y = lat · 2e9/360`; a Swedish E4 junction
+decodes to 17.90° E 59.56° N, the NL A1 points follow the real road Watergraafsmeer → Diemen → Muiden
+→ Amersfoort). `+0x54` and `+0x5C` repeat `+0x20` for 58 % / 63 % of the records that have one, `+0x38`
+for 50 %; `+0x44` and `+0x4C` are typically 45 m from it (median; perhaps the two carriageways).
+**Not decoded:** the bits of `+0x02` and `+0x05`, which of the six points is which, `+0x1C` / `+0x1E`
+and the remaining bytes. Section 12 of the road tiles names these records
+(`03-road-network.md` §6.7).
 
 `0x19` record (40 B), the fields checked so far:
 
@@ -982,8 +1019,8 @@ S0: n records of 8 B -> ">IHH"
     terminator {0, last location code + 1, 0}
 ```
 
-The 13 tables together cover every `0x17` block once. The `0x07` SECTION_1 records
-(§4.2) point to them:
+The tables together cover every `0x17` block once (13 on the DVDs, 14 on the 2007 CD). The `0x07` SECTION_1 records
+(§4.2) point to them (checked on the DVDs; not on the CD):
 
 ```
 0x07 SECTION_1 (20 B) -> ">IHHHBBHHHH"
@@ -1016,6 +1053,19 @@ The low nibble is the RDS country code of the country `0x07` gives for the table
 `country_CC_LTN_…`) gives the same CC and LTN for 12 of the 13; for the UK it lists LTN 7,
 the disc LTN 10 (its first code also differs between the two DVDs: 32000 / 1). The same
 list gives Germany's table the extent 47.387..55.017° N, the range of the `0x19` keys.
+
+**Tables on the 2007 CD.** The `0x18` blocks list 14 tables: the DVD list without gb and with two more,
+`0x013` (LTN 1, CC 3; 78 records, Principat d'Andorra and its seven parishes, road `CG1`; the published
+`ad_3_1`) and `0x116` (LTN 17, CC 6, the RDS code of be on the DVDs; 35,344 records; next to the
+`0x016` of the DVDs). Record counts: `0x01D` de 36,009, `0x116` 35,344, `0x20F` fr 21,450, `0x21E` se
+15,705, `0x015` it 13,832, `0x094` ch 12,464, `0x01A` at 11,072, `0x31F` no 9,022, `0x118` nl 8,885,
+`0x11E` es 8,557, `0x192` cz 7,810, `0x016` be 6,550, `0x099` dk 3,195, `0x013` ad 78.
+
+**The UK: LTN 7 and LTN 10.** The CD has no UK `0x17` table, but its road tiles still reference one: 47,341 of
+the 553,777 section 12 triples sampled (`03-road-network.md` §6.7) carry the table ids `0x0AC` (LTN 10, CC C,
+the id of the DVD table; 28,350 triples) or `0x07C` (LTN 7, CC C, the LTN of the published `gbr_C_7`; 18,991).
+So a disc of this generation uses both numbers for the UK, which may explain why the DVD table has LTN 10 where
+the published list has 7. Which of the two a given segment gets, and what each covers, is not known.
 
 **`0x1A` — position index over `0x19`.**
 
